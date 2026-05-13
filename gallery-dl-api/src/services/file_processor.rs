@@ -203,7 +203,7 @@ pub async fn process_single_file(
             .await
             .unwrap_or(None)
     } else {
-        (None)
+        None
     };
 
     // Remove original
