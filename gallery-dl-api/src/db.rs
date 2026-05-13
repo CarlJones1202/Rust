@@ -25,6 +25,8 @@ pub async fn init_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
 async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let initial_sql = include_str!("../migrations/001_initial.sql");
     let dimensions_sql = include_str!("../migrations/002_add_image_dimensions.sql");
+    let unique_constraints_sql = include_str!("../migrations/003_add_unique_constraints.sql");
+    let title_migration_sql = include_str!("../migrations/004_add_request_title.sql");
 
     sqlx::raw_sql(initial_sql).execute(pool).await?;
     
@@ -33,6 +35,10 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     // or better, check if they exist.
     // However, since we are using raw SQL, we'll just execute it.
     let _ = sqlx::raw_sql(dimensions_sql).execute(pool).await;
+    
+    sqlx::raw_sql(unique_constraints_sql).execute(pool).await?;
+
+    let _ = sqlx::raw_sql(title_migration_sql).execute(pool).await;
 
     info!("Migrations applied successfully");
     Ok(())

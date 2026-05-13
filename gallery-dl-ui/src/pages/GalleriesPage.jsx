@@ -64,7 +64,7 @@ export default function GalleriesPage() {
                 <div className="gallery-card-inner">
                   {cover ? (
                     <img
-                      src={thumbnailUrl(cover.hash, cover.extension)}
+                      src={thumbnailUrl(cover.hash)}
                       alt={gallery.title || 'Gallery'}
                       loading="lazy"
                     />

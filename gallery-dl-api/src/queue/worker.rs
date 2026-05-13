@@ -16,6 +16,7 @@ use tracing::{error, info};
 pub struct DownloadJob {
     pub request_id: String,
     pub url: String,
+    pub title: Option<String>,
 }
 
 /// Sender half for submitting jobs to the download queue.
@@ -31,6 +32,29 @@ pub fn spawn_worker(
     tokio::spawn(run_worker(rx, pool, config));
 
     tx
+}
+
+/// Query the database for unfinished jobs and re-queue them.
+pub async fn recover_pending_jobs(pool: &SqlitePool, tx: JobSender) {
+    match DownloadRequest::list_unfinished(pool).await {
+        Ok(requests) => {
+            if requests.is_empty() {
+                return;
+            }
+            info!(count = requests.len(), "Recovering unfinished download jobs");
+            for req in requests {
+                info!(request_id = %req.id, url = %req.url, "Re-queueing job");
+                let _ = tx.send(DownloadJob {
+                    request_id: req.id,
+                    url: req.url,
+                    title: req.title,
+                });
+            }
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to list unfinished jobs for recovery");
+        }
+    }
 }
 
 /// Main worker loop: receives jobs and spawns bounded concurrent tasks.
@@ -104,22 +128,30 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
             Ok(Some(processed)) => {
                 match processed.media_type {
                     MediaType::Image => {
-                        // Lazily create gallery on first image
+                        // Lazily reuse or create gallery
                         if gallery_id.is_none() {
-                            match Gallery::create(pool, &job.request_id, None).await {
-                                Ok(g) => {
-                                    info!(gallery_id = %g.id, "Created gallery");
-                                    gallery_id = Some(g.id);
+                            match Gallery::get_by_request_id(pool, &job.request_id).await {
+                                Ok(galleries) if !galleries.is_empty() => {
+                                    gallery_id = Some(galleries[0].id.clone());
+                                    info!(gallery_id = %gallery_id.as_ref().unwrap(), "Reusing existing gallery");
                                 }
-                                Err(e) => {
-                                    error!(error = %e, "Failed to create gallery");
-                                    continue;
+                                _ => {
+                                    match Gallery::create(pool, &job.request_id, job.title.as_deref()).await {
+                                        Ok(g) => {
+                                            info!(gallery_id = %g.id, "Created gallery");
+                                            gallery_id = Some(g.id);
+                                        }
+                                        Err(e) => {
+                                            error!(error = %e, "Failed to create gallery");
+                                            continue;
+                                        }
+                                    }
                                 }
                             }
                         }
 
                         if let Some(ref gid) = gallery_id {
-                            if let Err(e) = Image::create(
+                            match Image::create(
                                 pool,
                                 gid,
                                 &processed.hash,
@@ -131,14 +163,21 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
                             )
                             .await
                             {
-                                error!(error = %e, hash = %processed.hash, "Failed to insert image record");
-                            } else {
-                                image_count += 1;
+                                Ok(_) => {
+                                    image_count += 1;
+                                }
+                                Err(sqlx::Error::RowNotFound) => {
+                                    // This happens with INSERT OR IGNORE if the row already exists
+                                    info!(hash = %processed.hash, "Skipping duplicate image");
+                                }
+                                Err(e) => {
+                                    error!(error = %e, hash = %processed.hash, "Failed to insert image record");
+                                }
                             }
                         }
                     }
                     MediaType::Video => {
-                        if let Err(e) = Video::create(
+                        match Video::create(
                             pool,
                             &job.request_id,
                             &processed.hash,
@@ -148,9 +187,15 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
                         )
                         .await
                         {
-                            error!(error = %e, hash = %processed.hash, "Failed to insert video record");
-                        } else {
-                            video_count += 1;
+                            Ok(_) => {
+                                video_count += 1;
+                            }
+                            Err(sqlx::Error::RowNotFound) => {
+                                info!(hash = %processed.hash, "Skipping duplicate video");
+                            }
+                            Err(e) => {
+                                error!(error = %e, hash = %processed.hash, "Failed to insert video record");
+                            }
                         }
                     }
                     MediaType::Unknown => {}
@@ -185,6 +230,8 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
         );
     }
 
-    // Clean up temp dir
-    let _ = tokio::fs::remove_dir_all(&temp_dir).await;
+    // Clean up temp dir only on success to allow resumption if failed/interrupted
+    if dl_result.is_ok() {
+        let _ = tokio::fs::remove_dir_all(&temp_dir).await;
+    }
 }

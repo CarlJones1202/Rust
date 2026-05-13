@@ -5,6 +5,7 @@ import './UrlSubmitForm.css';
 
 export default function UrlSubmitForm() {
   const [url, setUrl] = useState('');
+  const [name, setName] = useState('');
   const [bulkUrls, setBulkUrls] = useState('');
   const [bulkMode, setBulkMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -15,10 +16,10 @@ export default function UrlSubmitForm() {
     setTimeout(() => setFeedback(null), 4000);
   };
 
-  const submitSingle = async (targetUrl) => {
+  const submitSingle = async (targetUrl, targetName = null) => {
     const trimmed = targetUrl.trim();
     if (!trimmed) return;
-    await createRequest(trimmed);
+    await createRequest(trimmed, targetName);
     return trimmed;
   };
 
@@ -55,8 +56,9 @@ export default function UrlSubmitForm() {
         showFeedback('success', `Queued ${successCount} new URLs`);
       } else {
         try {
-          await submitSingle(url);
+          await submitSingle(url, name);
           setUrl('');
+          setName('');
           showFeedback('success', 'URL queued for download');
         } catch (err) {
           if (err.message === 'URL already exists') {
@@ -79,7 +81,7 @@ export default function UrlSubmitForm() {
       <div className="url-form-inputs">
         {bulkMode ? (
           <textarea
-            value={bulkUrls}
+             value={bulkUrls}
             onChange={(e) => setBulkUrls(e.target.value)}
             placeholder="Paste URLs here, one per line..."
             disabled={submitting}
@@ -92,6 +94,15 @@ export default function UrlSubmitForm() {
               onChange={(e) => setUrl(e.target.value)}
               placeholder="Paste a URL to download..."
               disabled={submitting}
+              className="url-input-main"
+            />
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Gallery name (optional)..."
+              disabled={submitting}
+              className="url-input-name"
             />
           </div>
         )}

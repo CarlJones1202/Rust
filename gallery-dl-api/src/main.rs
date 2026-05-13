@@ -6,7 +6,7 @@ mod pagination;
 mod queue;
 mod services;
 
-use axum::{routing::get, routing::post, Router};
+use axum::{routing::get, routing::post, routing::patch, Router};
 use axum::http::header;
 use queue::worker::JobSender;
 use sqlx::SqlitePool;
@@ -55,6 +55,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let job_sender = queue::worker::spawn_worker(pool.clone(), config.clone());
     info!("Download queue worker started");
 
+    // Recover unfinished jobs
+    queue::worker::recover_pending_jobs(&pool, job_sender.clone()).await;
+
     // Build application state
     let state = AppState {
         db: pool,
@@ -71,6 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/requests/{id}/requeue", post(handlers::requests::requeue_request))
         .route("/api/galleries", get(handlers::galleries::list_galleries))
         .route("/api/galleries/{id}", get(handlers::galleries::get_gallery))
+        .route("/api/galleries/{id}", patch(handlers::galleries::update_gallery))
         .route("/api/images", get(handlers::images::list_images))
         .route("/api/videos", get(handlers::videos::list_videos))
         // Static file serving for media

@@ -79,4 +79,18 @@ impl Gallery {
             .await?;
         Ok(row.0)
     }
+
+    /// Update gallery title.
+    pub async fn update_title(
+        pool: &SqlitePool,
+        id: &str,
+        title: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE galleries SET title = ? WHERE id = ?")
+            .bind(title)
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
 }

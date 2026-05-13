@@ -28,3 +28,30 @@
   font-size: 0.85rem;
   margin-bottom: 20px;
 }
+
+.title-display-group, .title-edit-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.title-input {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-size: 1.25rem;
+  font-weight: 600;
+  font-family: inherit;
+  outline: none;
+  width: 100%;
+  max-width: 400px;
+}
+
+.btn-icon {
+  padding: 8px !important;
+  border-radius: 50%;
+  min-width: 36px;
+  min-height: 36px;
+}

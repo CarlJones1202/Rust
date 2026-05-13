@@ -42,6 +42,13 @@
   color: var(--text-muted);
 }
 
+.meta-url {
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .download-error {
   font-size: 0.78rem;
   color: var(--error);

@@ -91,9 +91,10 @@ export default function DownloadsPage() {
               <div key={req.id} className="download-item">
                 <div className="download-url">
                   <Link to={`/downloads/${req.id}`} title={req.url}>
-                    {req.url}
+                    {req.title || req.url}
                   </Link>
                   <div className="download-meta">
+                    {req.title && <span className="meta-url">{req.url}</span>}
                     <span>{new Date(req.created_at + 'Z').toLocaleString()}</span>
                     <span>ID: {req.id.slice(0, 8)}…</span>
                   </div>

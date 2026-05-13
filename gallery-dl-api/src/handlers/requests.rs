@@ -18,6 +18,7 @@ use std::path::PathBuf;
 #[derive(Debug, Deserialize)]
 pub struct CreateRequestBody {
     pub url: String,
+    pub name: Option<String>,
 }
 
 /// POST /api/requests — Submit a new URL for download.
@@ -42,7 +43,7 @@ pub async fn create_request(
     }
 
     // Insert request into DB
-    let request = DownloadRequest::create(&state.db, &url)
+    let request = DownloadRequest::create(&state.db, &url, body.name.as_deref())
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to create request");
@@ -56,6 +57,7 @@ pub async fn create_request(
     if let Err(e) = state.job_sender.send(DownloadJob {
         request_id: request.id.clone(),
         url: url.clone(),
+        title: request.title.clone(),
     }) {
         error!(error = %e, "Failed to enqueue download job");
         let _ = DownloadRequest::update_status(
@@ -234,6 +236,7 @@ pub async fn requeue_request(
     if let Err(e) = state.job_sender.send(DownloadJob {
         request_id: id.clone(),
         url: request.url.clone(),
+        title: request.title.clone(),
     }) {
         error!(error = %e, "Failed to re-enqueue download job");
         return Err((

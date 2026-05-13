@@ -25,7 +25,7 @@ impl Video {
     ) -> Result<Self, sqlx::Error> {
         let id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO videos (id, request_id, hash, extension, original_filename, file_size_bytes) VALUES (?, ?, ?, ?, ?, ?)"
+            "INSERT OR IGNORE INTO videos (id, request_id, hash, extension, original_filename, file_size_bytes) VALUES (?, ?, ?, ?, ?, ?)"
         )
         .bind(&id)
         .bind(request_id)

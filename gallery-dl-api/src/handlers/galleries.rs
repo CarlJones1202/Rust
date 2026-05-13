@@ -66,3 +66,48 @@ pub async fn get_gallery(
 
     Ok(Json(GalleryDetail { gallery, images }))
 }
+
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateGalleryBody {
+    pub title: String,
+}
+
+/// PATCH /api/galleries/:id — Update gallery metadata (e.g. rename).
+pub async fn update_gallery(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateGalleryBody>,
+) -> Result<Json<Gallery>, (StatusCode, Json<serde_json::Value>)> {
+    let gallery = Gallery::get_by_id(&state.db, &id)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to get gallery");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error" })),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Gallery not found" })),
+            )
+        })?;
+
+    Gallery::update_title(&state.db, &gallery.id, &body.title)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to update gallery title");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Failed to update gallery title" })),
+            )
+        })?;
+
+    let updated = Gallery::get_by_id(&state.db, &id)
+        .await
+        .unwrap() // Should exist
+        .unwrap();
+
+    Ok(Json(updated))
+}

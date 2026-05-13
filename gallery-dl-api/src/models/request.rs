@@ -6,6 +6,7 @@ use uuid::Uuid;
 pub struct DownloadRequest {
     pub id: String,
     pub url: String,
+    pub title: Option<String>,
     pub status: String,
     pub error_message: Option<String>,
     pub created_at: String,
@@ -23,13 +24,14 @@ pub struct DownloadRequestDetail {
 
 impl DownloadRequest {
     /// Create a new download request.
-    pub async fn create(pool: &SqlitePool, url: &str) -> Result<Self, sqlx::Error> {
+    pub async fn create(pool: &SqlitePool, url: &str, title: Option<&str>) -> Result<Self, sqlx::Error> {
         let id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO requests (id, url, status) VALUES (?, ?, 'pending')"
+            "INSERT INTO requests (id, url, title, status) VALUES (?, ?, ?, 'pending')"
         )
         .bind(&id)
         .bind(url)
+        .bind(title)
         .execute(pool)
         .await?;
 

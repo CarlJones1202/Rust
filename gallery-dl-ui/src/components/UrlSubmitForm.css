@@ -17,6 +17,16 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  width: 100%;
+}
+
+.url-input-main {
+  flex: 2 !important;
+}
+
+.url-input-name {
+  flex: 1 !important;
+  max-width: 250px;
 }
 
 .url-form input[type="text"] {

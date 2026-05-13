@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Image } from 'lucide-react';
+import { ArrowLeft, Image, Edit2, Check, X } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
-import { getGallery, imageUrl, thumbnailUrl } from '../api';
+import { getGallery, imageUrl, thumbnailUrl, updateGallery } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import './GalleryDetailPage.css';
 
@@ -12,14 +12,30 @@ export default function GalleryDetailPage() {
   const [gallery, setGallery] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState(-1);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
 
   useEffect(() => {
     setLoading(true);
     getGallery(id)
-      .then(setGallery)
+      .then((data) => {
+        setGallery(data);
+        setEditTitle(data.title || '');
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [id]);
+
+  const handleTitleUpdate = async () => {
+    if (!editTitle.trim()) return;
+    try {
+      const updated = await updateGallery(id, editTitle.trim());
+      setGallery({ ...gallery, title: updated.title });
+      setIsEditing(false);
+    } catch (err) {
+      alert(`Failed to update title: ${err.message}`);
+    }
+  };
 
   if (loading) {
     return <div className="empty-state"><p>Loading...</p></div>;
@@ -42,7 +58,34 @@ export default function GalleryDetailPage() {
         Back to galleries
       </Link>
       <div className="gallery-detail-header">
-        <h2>{gallery.title || `Gallery ${gallery.id.slice(0, 8)}`}</h2>
+        {isEditing ? (
+          <div className="title-edit-group">
+            <input
+              type="text"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              className="title-input"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleTitleUpdate();
+                if (e.key === 'Escape') setIsEditing(false);
+              }}
+            />
+            <button className="btn btn-primary btn-icon" onClick={handleTitleUpdate}>
+              <Check size={16} />
+            </button>
+            <button className="btn btn-ghost btn-icon" onClick={() => setIsEditing(false)}>
+              <X size={16} />
+            </button>
+          </div>
+        ) : (
+          <div className="title-display-group">
+            <h2>{gallery.title || `Gallery ${gallery.id.slice(0, 8)}`}</h2>
+            <button className="btn btn-ghost btn-icon" onClick={() => setIsEditing(true)}>
+              <Edit2 size={16} />
+            </button>
+          </div>
+        )}
       </div>
       <div className="gallery-stats">
         {images.length} image{images.length !== 1 ? 's' : ''} · Created{' '}

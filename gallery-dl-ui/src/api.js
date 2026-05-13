@@ -17,11 +17,11 @@ async function request(path, options = {}) {
 }
 
 // --- Requests ---
-
-export function createRequest(url) {
+ 
+export function createRequest(url, name = null) {
   return request('/api/requests', {
     method: 'POST',
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, name }),
   });
 }
 
@@ -49,6 +49,13 @@ export function getGallery(id) {
   return request(`/api/galleries/${id}`);
 }
 
+export function updateGallery(id, title) {
+  return request(`/api/galleries/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
+  });
+}
+
 // --- Images ---
 
 export function listImages(page = 1, perPage = 50) {
@@ -67,8 +74,8 @@ export function imageUrl(hash, extension) {
   return `${API_BASE}/media/images/${hash}.${extension}`;
 }
 
-export function thumbnailUrl(hash, extension) {
-  return `${API_BASE}/media/thumbnails/${hash}.${extension}`;
+export function thumbnailUrl(hash) {
+  return `${API_BASE}/media/thumbnails/${hash}.jpg`;
 }
 
 export function videoUrl(hash, extension) {

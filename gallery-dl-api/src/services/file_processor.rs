@@ -123,23 +123,36 @@ pub async fn process_single_file(
             .map_err(|e| format!("Failed to copy file to {}: {e}", dest_path.display()))?;
     }
 
-    // Generate thumbnail for images
-    if media_type == MediaType::Image {
-        let thumbnail_dir = storage_dir.join("thumbnails");
-        fs::create_dir_all(&thumbnail_dir)
-            .await
-            .map_err(|e| format!("Failed to create thumbnails dir: {e}"))?;
+    // Generate thumbnail for images or videos
+    let thumbnail_dir = storage_dir.join("thumbnails");
+    fs::create_dir_all(&thumbnail_dir)
+        .await
+        .map_err(|e| format!("Failed to create thumbnails dir: {e}"))?;
 
-        let thumbnail_path = thumbnail_dir.join(&new_filename);
-        if !thumbnail_path.exists() {
-            let src = dest_path.clone();
-            let dst = thumbnail_path.clone();
-            let _ = task::spawn_blocking(move || {
-                if let Err(e) = generate_thumbnail(&src, &dst) {
-                    error!(error = %e, path = %src.display(), "Failed to generate thumbnail");
-                }
-            })
-            .await;
+    let thumbnail_filename = format!("{hash}.jpg"); // Thumbnails are always jpg for consistency
+    let thumbnail_path = thumbnail_dir.join(&thumbnail_filename);
+
+    if !thumbnail_path.exists() {
+        let src = dest_path.clone();
+        let dst = thumbnail_path.clone();
+        match media_type {
+            MediaType::Image => {
+                let _ = task::spawn_blocking(move || {
+                    if let Err(e) = generate_thumbnail(&src, &dst) {
+                        error!(error = %e, path = %src.display(), "Failed to generate image thumbnail");
+                    }
+                })
+                .await;
+            }
+            MediaType::Video => {
+                let _ = task::spawn_blocking(move || {
+                    if let Err(e) = generate_video_thumbnail(&src, &dst) {
+                        error!(error = %e, path = %src.display(), "Failed to generate video thumbnail");
+                    }
+                })
+                .await;
+            }
+            MediaType::Unknown => {}
         }
     }
 
@@ -206,6 +219,57 @@ fn generate_thumbnail(src: &Path, dst: &Path) -> Result<(), String> {
     thumbnail
         .save(dst)
         .map_err(|e| format!("Failed to save thumbnail: {e}"))?;
+
+    Ok(())
+}
+
+/// Generate a thumbnail for a video using ffmpeg.
+fn generate_video_thumbnail(src: &Path, dst: &Path) -> Result<(), String> {
+    use std::process::Command;
+
+    // Run ffmpeg to extract a frame from the 1-second mark (or 0 if it's very short)
+    let status = Command::new("ffmpeg")
+        .arg("-ss")
+        .arg("00:00:01")
+        .arg("-i")
+        .arg(src)
+        .arg("-vframes")
+        .arg("1")
+        .arg("-q:v")
+        .arg("2")
+        .arg("-s")
+        .arg("500x500")
+        .arg("-f")
+        .arg("image2")
+        .arg("-y")
+        .arg(dst)
+        .status()
+        .map_err(|e| format!("Failed to run ffmpeg: {e}"))?;
+
+    if !status.success() {
+        // Try again at 0 seconds if 1 second failed (e.g. video shorter than 1s)
+        let status = Command::new("ffmpeg")
+            .arg("-ss")
+            .arg("00:00:00")
+            .arg("-i")
+            .arg(src)
+            .arg("-vframes")
+            .arg("1")
+            .arg("-q:v")
+            .arg("2")
+            .arg("-s")
+            .arg("500x500")
+            .arg("-f")
+            .arg("image2")
+            .arg("-y")
+            .arg(dst)
+            .status()
+            .map_err(|e| format!("Failed to run ffmpeg again: {e}"))?;
+
+        if !status.success() {
+            return Err(format!("ffmpeg failed with status: {status}"));
+        }
+    }
 
     Ok(())
 }
