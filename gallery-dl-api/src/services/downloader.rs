@@ -32,11 +32,13 @@ pub async fn run_gallery_dl(
     let mut cmd = Command::new(gallery_dl_bin);
     cmd.arg("-d")
         .arg(&abs_temp_str)
+        .arg("--chapter-filter")
+        .arg("post_num == '1'")
         .arg("--no-mtime")
         .arg(url);
 
-    debug!("Exec: {:?} {} {} {} {}", 
-        gallery_dl_bin, "-d", abs_temp_str, "--no-mtime", url);
+    debug!("Exec: {:?} {} {} {} {} {} {}", 
+        gallery_dl_bin, "-d", abs_temp_str, "--chapter-filter", "post_num == '1'", "--no-mtime", url);
 
     let mut child = cmd
         .stdout(std::process::Stdio::piped())
