@@ -1,7 +1,7 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
 use std::str::FromStr;
-use tracing::info;
+use tracing::{error, info};
 
 /// Initialize the SQLite connection pool and run migrations.
 pub async fn init_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
@@ -24,21 +24,43 @@ pub async fn init_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
 /// Run SQL migration files from the migrations directory.
 async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let initial_sql = include_str!("../migrations/001_initial.sql");
-    let dimensions_sql = include_str!("../migrations/002_add_image_dimensions.sql");
     let unique_constraints_sql = include_str!("../migrations/003_add_unique_constraints.sql");
-    let title_migration_sql = include_str!("../migrations/004_add_request_title.sql");
 
+    // 001: Initial tables
     sqlx::raw_sql(initial_sql).execute(pool).await?;
-    
-    // We use a separate block or check if columns exist if we wanted it to be idempotent, 
-    // but for simple dev flow we can just try and ignore "duplicate column" errors 
-    // or better, check if they exist.
-    // However, since we are using raw SQL, we'll just execute it.
-    let _ = sqlx::raw_sql(dimensions_sql).execute(pool).await;
-    
-    sqlx::raw_sql(unique_constraints_sql).execute(pool).await?;
 
-    let _ = sqlx::raw_sql(title_migration_sql).execute(pool).await;
+    // 002: Image dimensions
+    // We check if the column exists to avoid errors on re-run
+    let _ = sqlx::query("ALTER TABLE images ADD COLUMN width INTEGER").execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE images ADD COLUMN height INTEGER").execute(pool).await;
+    
+    // 003: Unique constraints
+    let _ = sqlx::raw_sql(unique_constraints_sql).execute(pool).await;
+
+    // 004: Request title
+    // Explicitly add column and log failure if it's not a "duplicate column" error
+    if let Err(e) = sqlx::query("ALTER TABLE requests ADD COLUMN title TEXT").execute(pool).await {
+        let msg = e.to_string();
+        if !msg.contains("duplicate column name") {
+            error!(error = %msg, "Failed to apply title migration");
+        }
+    }
+
+    // 005: Video enhancements (duration and progress)
+    if let Err(e) = sqlx::query("ALTER TABLE videos ADD COLUMN duration_seconds REAL").execute(pool).await {
+        let msg = e.to_string();
+        if !msg.contains("duplicate column name") {
+            error!(error = %msg, "Failed to add duration_seconds to videos");
+        }
+    }
+    
+    if let Err(e) = sqlx::raw_sql(include_str!("../migrations/005_video_enhancements.sql")).execute(pool).await {
+        let msg = e.to_string();
+        // Ignore duplicate column errors from the script as well
+        if !msg.contains("duplicate column name") {
+             error!(error = %msg, "Failed to apply 005_video_enhancements migration");
+        }
+    }
 
     info!("Migrations applied successfully");
     Ok(())

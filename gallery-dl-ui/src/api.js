@@ -25,8 +25,12 @@ export function createRequest(url, name = null) {
   });
 }
 
-export function listRequests(page = 1, perPage = 50) {
-  return request(`/api/requests?page=${page}&per_page=${perPage}`);
+export function listRequests(page = 1, perPage = 50, q = '', sort = '', status = '') {
+  let url = `/api/requests?page=${page}&per_page=${perPage}`;
+  if (q) url += `&q=${encodeURIComponent(q)}`;
+  if (sort) url += `&sort=${sort}`;
+  if (status) url += `&status=${status}`;
+  return request(url);
 }
 
 export function getRequest(id) {
@@ -68,6 +72,17 @@ export function listVideos(page = 1, perPage = 50) {
   return request(`/api/videos?page=${page}&per_page=${perPage}`);
 }
 
+export function getVideoProgress(id) {
+  return request(`/api/videos/${id}/progress`);
+}
+
+export function saveVideoProgress(id, positionSeconds) {
+  return request(`/api/videos/${id}/progress`, {
+    method: 'POST',
+    body: JSON.stringify({ position_seconds: positionSeconds }),
+  });
+}
+
 // --- Media URLs ---
 
 export function imageUrl(hash, extension) {
@@ -80,4 +95,8 @@ export function thumbnailUrl(hash) {
 
 export function videoUrl(hash, extension) {
   return `${API_BASE}/media/videos/${hash}.${extension}`;
+}
+
+export function trickplayUrl(hash) {
+  return `${API_BASE}/media/trickplay/${hash}.jpg`;
 }

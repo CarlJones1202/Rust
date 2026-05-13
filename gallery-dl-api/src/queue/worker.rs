@@ -22,6 +22,31 @@ pub struct DownloadJob {
 /// Sender half for submitting jobs to the download queue.
 pub type JobSender = mpsc::UnboundedSender<DownloadJob>;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum JobBucket {
+    Image,
+    Video,
+}
+
+/// Simple classification of URLs into buckets.
+fn classify_job(url: &str) -> JobBucket {
+    let url = url.to_lowercase();
+    // Common video-only or video-centric domains
+    if url.contains("youtube.com")
+        || url.contains("youtu.be")
+        || url.contains("vimeo.com")
+        || url.contains("dailymotion.com")
+        || url.contains("bilibili.com")
+        || url.contains("twitch.tv")
+        || url.contains("tnaflix.com")
+        || url.contains("pmvhaven.com")
+    {
+        JobBucket::Video
+    } else {
+        JobBucket::Image
+    }
+}
+
 /// Spawn the background download worker that processes jobs from the queue.
 pub fn spawn_worker(
     pool: SqlitePool,
@@ -57,23 +82,72 @@ pub async fn recover_pending_jobs(pool: &SqlitePool, tx: JobSender) {
     }
 }
 
-/// Main worker loop: receives jobs and spawns bounded concurrent tasks.
+/// Main worker dispatcher: receives jobs and routes them to bucket workers.
 async fn run_worker(
     mut rx: mpsc::UnboundedReceiver<DownloadJob>,
     pool: SqlitePool,
     config: Config,
 ) {
-    let semaphore = Arc::new(Semaphore::new(config.max_concurrent_downloads));
+    let (image_tx, image_rx) = mpsc::unbounded_channel::<DownloadJob>();
+    let (video_tx, video_rx) = mpsc::unbounded_channel::<DownloadJob>();
+
+    // Spawn bucket workers
+    tokio::spawn(bucket_worker(
+        image_rx,
+        pool.clone(),
+        config.clone(),
+        config.max_concurrent_downloads,
+        "Image",
+    ));
+    tokio::spawn(bucket_worker(
+        video_rx,
+        pool.clone(),
+        config.clone(),
+        config.max_concurrent_video_downloads,
+        "Video",
+    ));
 
     info!(
-        max_concurrent = config.max_concurrent_downloads,
-        "Download worker started"
+        max_images = config.max_concurrent_downloads,
+        max_videos = config.max_concurrent_video_downloads,
+        "Download dispatcher started"
+    );
+
+    while let Some(job) = rx.recv().await {
+        let bucket = classify_job(&job.url);
+        match bucket {
+            JobBucket::Image => {
+                let _ = image_tx.send(job);
+            }
+            JobBucket::Video => {
+                let _ = video_tx.send(job);
+            }
+        }
+    }
+
+    info!("Download dispatcher shutting down");
+}
+
+/// A worker that processes jobs from a specific bucket with its own concurrency limit.
+async fn bucket_worker(
+    mut rx: mpsc::UnboundedReceiver<DownloadJob>,
+    pool: SqlitePool,
+    config: Config,
+    concurrency: usize,
+    name: &'static str,
+) {
+    let semaphore = Arc::new(Semaphore::new(concurrency));
+
+    info!(
+        bucket = name,
+        concurrency = concurrency,
+        "Bucket worker started"
     );
 
     while let Some(job) = rx.recv().await {
         let permit = semaphore.clone().acquire_owned().await;
         if permit.is_err() {
-            error!("Semaphore closed unexpectedly");
+            error!(bucket = name, "Bucket semaphore closed unexpectedly");
             break;
         }
         let permit = permit.unwrap();
@@ -87,7 +161,7 @@ async fn run_worker(
         });
     }
 
-    info!("Download worker shutting down");
+    info!(bucket = name, "Bucket worker shutting down");
 }
 
 /// Process a single download job.
@@ -168,7 +242,7 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
                                 }
                                 Err(sqlx::Error::RowNotFound) => {
                                     // This happens with INSERT OR IGNORE if the row already exists
-                                    info!(hash = %processed.hash, "Skipping duplicate image");
+                                    tracing::debug!(hash = %processed.hash, "Skipping duplicate image");
                                 }
                                 Err(e) => {
                                     error!(error = %e, hash = %processed.hash, "Failed to insert image record");
@@ -184,6 +258,7 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
                             &processed.extension,
                             Some(&processed.original_filename),
                             processed.file_size_bytes,
+                            processed.duration_seconds,
                         )
                         .await
                         {
@@ -191,7 +266,7 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
                                 video_count += 1;
                             }
                             Err(sqlx::Error::RowNotFound) => {
-                                info!(hash = %processed.hash, "Skipping duplicate video");
+                                tracing::debug!(hash = %processed.hash, "Skipping duplicate video");
                             }
                             Err(e) => {
                                 error!(error = %e, hash = %processed.hash, "Failed to insert video record");
@@ -212,14 +287,18 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
     let dl_result = match dl_task.await {
         Ok(res) => res,
         Err(e) => {
+            if e.is_cancelled() {
+                info!(request_id = %job.request_id, "Download task cancelled (likely shutdown)");
+                return; // Return without updating status, leaving it as 'processing' for recovery
+            }
             error!(error = %e, "gallery-dl task panicked");
             Err("gallery-dl task panicked".to_string())
         }
     };
 
-    if let Err(e) = dl_result {
+    if let Err(ref e) = dl_result {
         error!(error = %e, "gallery-dl failed");
-        let _ = DownloadRequest::update_status(pool, &job.request_id, "failed", Some(&e)).await;
+        let _ = DownloadRequest::update_status(pool, &job.request_id, "failed", Some(e)).await;
     } else {
         let _ = DownloadRequest::update_status(pool, &job.request_id, "completed", None).await;
         info!(

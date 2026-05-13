@@ -81,23 +81,32 @@ pub async fn list_requests(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<DownloadRequest>>, (StatusCode, Json<serde_json::Value>)> {
-    let total = DownloadRequest::count(&state.db).await.map_err(|e| {
-        error!(error = %e, "Failed to count requests");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": "Database error" })),
-        )
-    })?;
-
-    let items = DownloadRequest::list(&state.db, params.per_page(), params.offset())
+    let total = DownloadRequest::count(&state.db, params.q.as_deref(), params.status.as_deref())
         .await
         .map_err(|e| {
-            error!(error = %e, "Failed to list requests");
+            error!(error = %e, "Failed to count requests");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": "Database error" })),
             )
         })?;
+
+    let items = DownloadRequest::list(
+        &state.db,
+        params.per_page(),
+        params.offset(),
+        params.q.as_deref(),
+        params.status.as_deref(),
+        params.sort.as_deref(),
+    )
+    .await
+    .map_err(|e| {
+        error!(error = %e, "Failed to list requests");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "Database error" })),
+        )
+    })?;
 
     Ok(Json(PaginatedResponse {
         data: items,

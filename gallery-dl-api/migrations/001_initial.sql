@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS requests (
     id TEXT PRIMARY KEY NOT NULL,
     url TEXT NOT NULL,
+    title TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     error_message TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),

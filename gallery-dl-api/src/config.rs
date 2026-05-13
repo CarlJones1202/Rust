@@ -8,6 +8,7 @@ pub struct Config {
     pub storage_dir: String,
     pub database_url: String,
     pub max_concurrent_downloads: usize,
+    pub max_concurrent_video_downloads: usize,
     pub gallery_dl_bin: String,
 }
 
@@ -27,6 +28,10 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(10),
+            max_concurrent_video_downloads: env::var("MAX_CONCURRENT_VIDEO_DOWNLOADS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(2),
             gallery_dl_bin: env::var("GALLERY_DL_BIN")
                 .unwrap_or_else(|_| "gallery-dl".to_string()),
         }

@@ -32,6 +32,7 @@ pub struct ProcessedFile {
     pub file_size_bytes: i64,
     pub width: Option<i32>,
     pub height: Option<i32>,
+    pub duration_seconds: Option<f64>,
     #[allow(dead_code)]
     pub final_path: PathBuf,
 }
@@ -151,6 +152,20 @@ pub async fn process_single_file(
                     }
                 })
                 .await;
+
+                // Also generate trickplay assets
+                let trickplay_dir = storage_dir.join("trickplay");
+                let _ = fs::create_dir_all(&trickplay_dir).await;
+                let trickplay_path = trickplay_dir.join(format!("{hash}.jpg"));
+                if !trickplay_path.exists() {
+                    let src = dest_path.clone();
+                    let _ = task::spawn_blocking(move || {
+                        if let Err(e) = generate_trickplay_assets(&src, &trickplay_path) {
+                            error!(error = %e, path = %src.display(), "Failed to generate trickplay assets");
+                        }
+                    })
+                    .await;
+                }
             }
             MediaType::Unknown => {}
         }
@@ -170,10 +185,20 @@ pub async fn process_single_file(
         (None, None)
     };
 
+    // Get duration if video
+    let duration_seconds = if media_type == MediaType::Video {
+        let path = dest_path.clone();
+        task::spawn_blocking(move || get_video_duration(&path).ok())
+            .await
+            .unwrap_or(None)
+    } else {
+        (None)
+    };
+
     // Remove original
     let _ = fs::remove_file(file_path).await;
 
-    info!(
+    tracing::debug!(
         hash = %hash,
         ext = %extension,
         media_type = ?media_type,
@@ -188,25 +213,11 @@ pub async fn process_single_file(
         file_size_bytes,
         width,
         height,
+        duration_seconds,
         final_path: dest_path,
     }))
 }
 
-/// Process all downloaded files: hash, classify, rename, and move to permanent storage.
-pub async fn process_files(
-    files: Vec<PathBuf>,
-    storage_dir: &Path,
-) -> Result<Vec<ProcessedFile>, String> {
-    let mut processed = Vec::new();
-
-    for file_path in &files {
-        if let Some(processed_file) = process_single_file(file_path, storage_dir).await? {
-            processed.push(processed_file);
-        }
-    }
-
-    Ok(processed)
-}
 
 /// Generate a thumbnail for an image.
 fn generate_thumbnail(src: &Path, dst: &Path) -> Result<(), String> {
@@ -227,30 +238,13 @@ fn generate_thumbnail(src: &Path, dst: &Path) -> Result<(), String> {
 fn generate_video_thumbnail(src: &Path, dst: &Path) -> Result<(), String> {
     use std::process::Command;
 
-    // Run ffmpeg to extract a frame from the 1-second mark (or 0 if it's very short)
-    let status = Command::new("ffmpeg")
-        .arg("-ss")
-        .arg("00:00:01")
-        .arg("-i")
-        .arg(src)
-        .arg("-vframes")
-        .arg("1")
-        .arg("-q:v")
-        .arg("2")
-        .arg("-s")
-        .arg("500x500")
-        .arg("-f")
-        .arg("image2")
-        .arg("-y")
-        .arg(dst)
-        .status()
-        .map_err(|e| format!("Failed to run ffmpeg: {e}"))?;
-
-    if !status.success() {
-        // Try again at 0 seconds if 1 second failed (e.g. video shorter than 1s)
+    // Try multiple timestamps: 5s, 1s, 0s
+    let timestamps = ["00:00:05", "00:00:01", "00:00:00"];
+    
+    for ts in timestamps {
         let status = Command::new("ffmpeg")
             .arg("-ss")
-            .arg("00:00:00")
+            .arg(ts)
             .arg("-i")
             .arg(src)
             .arg("-vframes")
@@ -264,11 +258,68 @@ fn generate_video_thumbnail(src: &Path, dst: &Path) -> Result<(), String> {
             .arg("-y")
             .arg(dst)
             .status()
-            .map_err(|e| format!("Failed to run ffmpeg again: {e}"))?;
+            .map_err(|e| format!("Failed to run ffmpeg: {e}"))?;
 
-        if !status.success() {
-            return Err(format!("ffmpeg failed with status: {status}"));
+        if status.success() {
+            // Check if file size is reasonable (> 3KB) to avoid black frames
+            if let Ok(meta) = std::fs::metadata(dst) {
+                if meta.len() > 3000 || ts == "00:00:00" {
+                    return Ok(());
+                }
+            }
         }
+    }
+
+    Err("Failed to generate a valid video thumbnail after multiple attempts".to_string())
+}
+
+/// Get the duration of a video using ffprobe.
+fn get_video_duration(path: &Path) -> Result<f64, String> {
+    use std::process::Command;
+
+    let output = Command::new("ffprobe")
+        .arg("-v")
+        .arg("error")
+        .arg("-show_entries")
+        .arg("format=duration")
+        .arg("-of")
+        .arg("default=noprint_wrappers=1:nokey=1")
+        .arg(path)
+        .output()
+        .map_err(|e| format!("Failed to run ffprobe: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!("ffprobe failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+
+    let duration_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    duration_str.parse::<f64>().map_err(|e| format!("Failed to parse duration: {e}"))
+}
+
+/// Generate a trickplay sprite sheet (10x10 tile of frames).
+fn generate_trickplay_assets(src: &Path, dst: &Path) -> Result<(), String> {
+    use std::process::Command;
+
+    // Get duration to calculate interval
+    let duration = get_video_duration(src)?;
+    let interval = duration / 100.0;
+    let fps = 1.0 / interval;
+
+    // Run ffmpeg to create a 10x10 tile of small frames (160px width)
+    let status = Command::new("ffmpeg")
+        .arg("-i")
+        .arg(src)
+        .arg("-vf")
+        .arg(format!("fps={},scale=160:-1,tile=10x10", fps))
+        .arg("-q:v")
+        .arg("2")
+        .arg("-y")
+        .arg(dst)
+        .status()
+        .map_err(|e| format!("Failed to run ffmpeg for trickplay: {e}"))?;
+
+    if !status.success() {
+        return Err(format!("ffmpeg trickplay failed with status: {status}"));
     }
 
     Ok(())

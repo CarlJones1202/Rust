@@ -6,6 +6,7 @@ import { listVideos, videoUrl } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import VideoCard from '../components/VideoCard';
 import Pagination from '../components/Pagination';
+import EnhancedVideoPlayer from '../components/EnhancedVideoPlayer';
 import './VideosPage.css';
 
 export default function VideosPage() {
@@ -29,6 +30,10 @@ export default function VideosPage() {
   const videos = data?.data || [];
   const slides = videos.map((vid) => ({
     type: 'custom-video',
+    video: {
+      ...vid,
+      src: videoUrl(vid.hash, vid.extension)
+    },
     src: videoUrl(vid.hash, vid.extension),
     sources: [
       {
@@ -78,17 +83,7 @@ export default function VideosPage() {
         render={{
           slide: ({ slide }) => {
             if (slide.type === 'custom-video') {
-              return (
-                <video
-                  controls
-                  autoPlay
-                  style={{ maxWidth: '90vw', maxHeight: '85vh' }}
-                >
-                  {slide.sources.map((s, i) => (
-                    <source key={i} src={s.src} type={s.type} />
-                  ))}
-                </video>
-              );
+              return <EnhancedVideoPlayer video={slide.video} />;
             }
             return undefined;
           },

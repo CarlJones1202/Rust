@@ -9,6 +9,8 @@ pub struct DownloadRequest {
     pub title: Option<String>,
     pub status: String,
     pub error_message: Option<String>,
+    pub image_count: i64,
+    pub video_count: i64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -40,9 +42,16 @@ impl DownloadRequest {
             .ok_or(sqlx::Error::RowNotFound)
     }
 
-    /// Get a request by ID.
     pub async fn get_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as::<_, Self>("SELECT * FROM requests WHERE id = ?")
+        sqlx::query_as::<_, Self>(
+            r#"
+            SELECT r.*, 
+                   (SELECT COUNT(*) FROM images i JOIN galleries g ON i.gallery_id = g.id WHERE g.request_id = r.id) as image_count,
+                   (SELECT COUNT(*) FROM videos v WHERE v.request_id = r.id) as video_count
+            FROM requests r 
+            WHERE r.id = ?
+            "#
+        )
             .bind(id)
             .fetch_optional(pool)
             .await
@@ -50,39 +59,121 @@ impl DownloadRequest {
 
     /// Get a request by URL.
     pub async fn get_by_url(pool: &SqlitePool, url: &str) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as::<_, Self>("SELECT * FROM requests WHERE url = ?")
+        sqlx::query_as::<_, Self>(
+            r#"
+            SELECT r.*, 
+                   (SELECT COUNT(*) FROM images i JOIN galleries g ON i.gallery_id = g.id WHERE g.request_id = r.id) as image_count,
+                   (SELECT COUNT(*) FROM videos v WHERE v.request_id = r.id) as video_count
+            FROM requests r 
+            WHERE r.url = ?
+            "#
+        )
             .bind(url)
             .fetch_optional(pool)
             .await
     }
 
-    /// List requests with pagination.
+    /// List requests with pagination, searching, filtering, and sorting.
     pub async fn list(
         pool: &SqlitePool,
         limit: i64,
         offset: i64,
+        search: Option<&str>,
+        status: Option<&str>,
+        sort: Option<&str>,
     ) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as::<_, Self>(
-            "SELECT * FROM requests ORDER BY created_at DESC LIMIT ? OFFSET ?"
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await
+        let mut query_str = r#"
+            SELECT r.*, 
+                   (SELECT COUNT(*) FROM images i JOIN galleries g ON i.gallery_id = g.id WHERE g.request_id = r.id) as image_count,
+                   (SELECT COUNT(*) FROM videos v WHERE v.request_id = r.id) as video_count
+            FROM requests r
+        "#.to_string();
+        let mut conditions = Vec::new();
+
+        if search.is_some() {
+            conditions.push("(url LIKE ? OR title LIKE ?)");
+        }
+        if status.is_some() {
+            conditions.push("status = ?");
+        }
+
+        if !conditions.is_empty() {
+            query_str.push_str(" WHERE ");
+            query_str.push_str(&conditions.join(" AND "));
+        }
+
+        let order_by = match sort {
+            Some("oldest") => "created_at ASC",
+            Some("status_asc") => "status ASC",
+            Some("status_desc") => "status DESC",
+            Some("title_asc") => "title ASC",
+            Some("title_desc") => "title DESC",
+            Some("url_asc") => "url ASC",
+            Some("url_desc") => "url DESC",
+            _ => "created_at DESC",
+        };
+
+        query_str.push_str(&format!(" ORDER BY {} LIMIT ? OFFSET ?", order_by));
+
+        let mut query = sqlx::query_as::<_, Self>(&query_str);
+
+        if let Some(s) = search {
+            let pattern = format!("%{}%", s);
+            query = query.bind(pattern.clone()).bind(pattern);
+        }
+        if let Some(st) = status {
+            query = query.bind(st);
+        }
+
+        query.bind(limit).bind(offset).fetch_all(pool).await
     }
 
-    /// Count total requests.
-    pub async fn count(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
-        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM requests")
-            .fetch_one(pool)
-            .await?;
+    /// Count requests with optional filters.
+    pub async fn count(
+        pool: &SqlitePool,
+        search: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<i64, sqlx::Error> {
+        let mut query_str = "SELECT COUNT(*) FROM requests".to_string();
+        let mut conditions = Vec::new();
+
+        if search.is_some() {
+            conditions.push("(url LIKE ? OR title LIKE ?)");
+        }
+        if status.is_some() {
+            conditions.push("status = ?");
+        }
+
+        if !conditions.is_empty() {
+            query_str.push_str(" WHERE ");
+            query_str.push_str(&conditions.join(" AND "));
+        }
+
+        let mut query = sqlx::query_as::<_, (i64,)>(&query_str);
+
+        if let Some(s) = search {
+            let pattern = format!("%{}%", s);
+            query = query.bind(pattern.clone()).bind(pattern);
+        }
+        if let Some(st) = status {
+            query = query.bind(st);
+        }
+
+        let row = query.fetch_one(pool).await?;
         Ok(row.0)
     }
 
     /// List requests that are not yet completed or failed.
     pub async fn list_unfinished(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as::<_, Self>(
-            "SELECT * FROM requests WHERE status IN ('pending', 'processing') ORDER BY created_at ASC"
+            r#"
+            SELECT r.*, 
+                   (SELECT COUNT(*) FROM images i JOIN galleries g ON i.gallery_id = g.id WHERE g.request_id = r.id) as image_count,
+                   (SELECT COUNT(*) FROM videos v WHERE v.request_id = r.id) as video_count
+            FROM requests r 
+            WHERE r.status IN ('pending', 'processing') 
+            ORDER BY r.created_at ASC
+            "#
         )
         .fetch_all(pool)
         .await

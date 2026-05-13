@@ -10,11 +10,24 @@ export default function DownloadsPage() {
   const [data, setData] = useState(null);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [sort, setSort] = useState('newest');
+  const [status, setStatus] = useState('');
   const pollRef = useRef(null);
 
-  const fetchData = useCallback(async (p) => {
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1); // Reset to first page on search
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const fetchData = useCallback(async (p, q, s, st) => {
     try {
-      const res = await listRequests(p, 20);
+      const res = await listRequests(p, 20, q, s, st);
       setData(res);
     } catch (err) {
       console.error('Failed to fetch requests:', err);
@@ -23,11 +36,11 @@ export default function DownloadsPage() {
     }
   }, []);
 
-  // Initial load
+  // Initial load and dependencies
   useEffect(() => {
     setLoading(true);
-    fetchData(page);
-  }, [page, fetchData]);
+    fetchData(page, debouncedSearch, sort, status);
+  }, [page, debouncedSearch, sort, status, fetchData]);
 
   // Auto-poll when there are active downloads
   useEffect(() => {
@@ -38,13 +51,13 @@ export default function DownloadsPage() {
     );
 
     if (hasActive) {
-      pollRef.current = setInterval(() => fetchData(page), 3000);
+      pollRef.current = setInterval(() => fetchData(page, debouncedSearch, sort, status), 3000);
     }
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [data, page, fetchData]);
+  }, [data, page, debouncedSearch, sort, status, fetchData]);
 
   const isPolling = data?.data.some((r) =>
     ['pending', 'downloading', 'processing'].includes(r.status)
@@ -76,6 +89,53 @@ export default function DownloadsPage() {
           )}
         </h2>
         <p>Track all download requests and their status</p>
+      </div>
+
+      <div className="downloads-toolbar">
+        <div className="search-box">
+          <input
+            type="text"
+            placeholder="Search by URL or title..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="search-input"
+          />
+        </div>
+        <div className="filter-box">
+          <select
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value);
+              setPage(1);
+            }}
+            className="filter-select"
+          >
+            <option value="">All Statuses</option>
+            <option value="pending">Pending</option>
+            <option value="processing">Processing</option>
+            <option value="completed">Completed</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
+        <div className="sort-box">
+          <select 
+            value={sort} 
+            onChange={(e) => {
+              setSort(e.target.value);
+              setPage(1);
+            }}
+            className="sort-select"
+          >
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="status_asc">Status (A-Z)</option>
+            <option value="status_desc">Status (Z-A)</option>
+            <option value="title_asc">Title (A-Z)</option>
+            <option value="title_desc">Title (Z-A)</option>
+            <option value="url_asc">URL (A-Z)</option>
+            <option value="url_desc">URL (Z-A)</option>
+          </select>
+        </div>
       </div>
 
       {data?.data.length === 0 ? (

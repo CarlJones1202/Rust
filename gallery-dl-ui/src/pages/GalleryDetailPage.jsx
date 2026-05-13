@@ -104,7 +104,7 @@ export default function GalleryDetailPage() {
           renderItem={(img) => (
             <>
               <img
-                src={thumbnailUrl(img.hash, img.extension)}
+                src={thumbnailUrl(img.hash)}
                 alt={img.original_filename || ''}
                 loading="lazy"
               />

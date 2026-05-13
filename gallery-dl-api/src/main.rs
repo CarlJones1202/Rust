@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "gallery_dl_api=info,tower_http=info".into()),
+                .unwrap_or_else(|_| "gallery_dl_api=info,tower_http=warn,sqlx=warn".into()),
         )
         .init();
 
@@ -77,6 +77,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/galleries/{id}", patch(handlers::galleries::update_gallery))
         .route("/api/images", get(handlers::images::list_images))
         .route("/api/videos", get(handlers::videos::list_videos))
+        .route("/api/videos/{id}/progress", get(handlers::videos::get_video_progress))
+        .route("/api/videos/{id}/progress", post(handlers::videos::save_video_progress))
         // Static file serving for media
         .nest_service(
             "/media/images",
@@ -89,6 +91,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest_service(
             "/media/thumbnails",
             ServeDir::new(storage_dir.join("thumbnails")),
+        )
+        .nest_service(
+            "/media/trickplay",
+            ServeDir::new(storage_dir.join("trickplay")),
         )
         .with_state(state)
         .layer(

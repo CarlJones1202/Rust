@@ -50,3 +50,19 @@
   border-radius: 4px;
   backdrop-filter: blur(4px);
 }
+
+.video-progress-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  z-index: 5;
+}
+
+.video-progress-bar {
+  height: 100%;
+  background: #ff0055;
+  transition: width 0.3s ease;
+}
