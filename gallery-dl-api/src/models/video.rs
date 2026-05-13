@@ -11,6 +11,8 @@ pub struct Video {
     pub original_filename: Option<String>,
     pub file_size_bytes: i64,
     pub duration_seconds: Option<f64>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
     pub progress_seconds: Option<f64>,
     pub created_at: String,
 }
@@ -32,10 +34,12 @@ impl Video {
         original_filename: Option<&str>,
         file_size_bytes: i64,
         duration_seconds: Option<f64>,
+        width: Option<i32>,
+        height: Option<i32>,
     ) -> Result<Self, sqlx::Error> {
         let id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT OR IGNORE INTO videos (id, request_id, hash, extension, original_filename, file_size_bytes, duration_seconds) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT OR IGNORE INTO videos (id, request_id, hash, extension, original_filename, file_size_bytes, duration_seconds, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&id)
         .bind(request_id)
@@ -44,6 +48,8 @@ impl Video {
         .bind(original_filename)
         .bind(file_size_bytes)
         .bind(duration_seconds)
+        .bind(width)
+        .bind(height)
         .execute(pool)
         .await?;
 

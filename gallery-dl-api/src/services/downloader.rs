@@ -37,8 +37,7 @@ pub async fn run_gallery_dl(
         || lower_url.contains("twitter.com")
         || lower_url.contains("x.com")
         || lower_url.contains("instagram.com")
-        || lower_url.contains("tnaflix.com")
-        || lower_url.contains("pmvhaven.com");
+        || lower_url.contains("tnaflix.com");
 
     let final_url = if is_video_site && !url.starts_with("ytdl:") {
         format!("ytdl:{}", url)

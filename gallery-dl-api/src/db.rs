@@ -62,6 +62,14 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         }
     }
 
+    // 006: Video dimensions
+    if let Err(e) = sqlx::raw_sql(include_str!("../migrations/006_video_dimensions.sql")).execute(pool).await {
+        let msg = e.to_string();
+        if !msg.contains("duplicate column name") {
+             error!(error = %msg, "Failed to apply 006_video_dimensions migration");
+        }
+    }
+
     info!("Migrations applied successfully");
     Ok(())
 }

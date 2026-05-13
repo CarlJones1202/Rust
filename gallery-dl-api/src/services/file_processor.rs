@@ -171,18 +171,29 @@ pub async fn process_single_file(
         }
     }
 
-    // Get dimensions if image
-    let (width, height) = if media_type == MediaType::Image {
-        let path = dest_path.clone();
-        task::spawn_blocking(move || {
-            image::image_dimensions(&path)
-                .map(|(w, h)| (Some(w as i32), Some(h as i32)))
-                .unwrap_or((None, None))
-        })
-        .await
-        .unwrap_or((None, None))
-    } else {
-        (None, None)
+    // Get dimensions if image or video
+    let (width, height) = match media_type {
+        MediaType::Image => {
+            let path = dest_path.clone();
+            task::spawn_blocking(move || {
+                image::image_dimensions(&path)
+                    .map(|(w, h)| (Some(w as i32), Some(h as i32)))
+                    .unwrap_or((None, None))
+            })
+            .await
+            .unwrap_or((None, None))
+        }
+        MediaType::Video => {
+            let path = dest_path.clone();
+            task::spawn_blocking(move || {
+                get_video_dimensions(&path)
+                    .map(|(w, h)| (Some(w), Some(h)))
+                    .unwrap_or((None, None))
+            })
+            .await
+            .unwrap_or((None, None))
+        }
+        MediaType::Unknown => (None, None),
     };
 
     // Get duration if video
@@ -294,6 +305,38 @@ fn get_video_duration(path: &Path) -> Result<f64, String> {
 
     let duration_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
     duration_str.parse::<f64>().map_err(|e| format!("Failed to parse duration: {e}"))
+}
+
+/// Get the dimensions of a video using ffprobe.
+fn get_video_dimensions(path: &Path) -> Result<(i32, i32), String> {
+    use std::process::Command;
+
+    let output = Command::new("ffprobe")
+        .arg("-v")
+        .arg("error")
+        .arg("-select_streams")
+        .arg("v:0")
+        .arg("-show_entries")
+        .arg("stream=width,height")
+        .arg("-of")
+        .arg("csv=s=x:p=0")
+        .arg(path)
+        .output()
+        .map_err(|e| format!("Failed to run ffprobe for dimensions: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!("ffprobe failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+
+    let dim_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let parts: Vec<&str> = dim_str.split('x').collect();
+    if parts.len() == 2 {
+        let width = parts[0].parse::<i32>().map_err(|_| "Failed to parse width".to_string())?;
+        let height = parts[1].parse::<i32>().map_err(|_| "Failed to parse height".to_string())?;
+        Ok((width, height))
+    } else {
+        Err(format!("Invalid dimension format: {}", dim_str))
+    }
 }
 
 /// Generate a trickplay sprite sheet (10x10 tile of frames).
