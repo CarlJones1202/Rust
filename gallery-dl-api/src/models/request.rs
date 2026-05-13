@@ -77,6 +77,15 @@ impl DownloadRequest {
         Ok(row.0)
     }
 
+    /// List requests that are not yet completed or failed.
+    pub async fn list_unfinished(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Self>(
+            "SELECT * FROM requests WHERE status IN ('pending', 'processing') ORDER BY created_at ASC"
+        )
+        .fetch_all(pool)
+        .await
+    }
+
     /// Update request status.
     pub async fn update_status(
         pool: &SqlitePool,

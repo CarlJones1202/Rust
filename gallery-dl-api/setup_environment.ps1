@@ -34,17 +34,32 @@ if (!(Get-Command python -ErrorAction SilentlyContinue)) {
     Write-Host-Success "Python is already installed: $(python --version)"
 }
 
-# 2. Install gallery-dl
-Write-Host-Info "Installing gallery-dl via pip..."
-python -m pip install -U gallery-dl
+# 2. Install gallery-dl and yt-dlp
+Write-Host-Info "Installing gallery-dl and yt-dlp via pip..."
+python -m pip install -U gallery-dl yt-dlp
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host-Success "gallery-dl installed successfully."
+    Write-Host-Success "gallery-dl and yt-dlp installed successfully."
 } else {
-    Write-Host-Warning "Failed to install gallery-dl. Ensure pip is updated."
+    Write-Host-Warning "Failed to install gallery-dl or yt-dlp. Ensure pip is updated."
 }
 
-# 3. Add gallery-dl to PATH
+# 3. Install FFmpeg
+Write-Host-Info "Checking for FFmpeg..."
+if (!(Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+    Write-Host-Info "FFmpeg not found. Installing via winget..."
+    winget install -e --id Gyan.FFmpeg --source winget --accept-package-agreements --accept-source-agreements
+    
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host-Success "FFmpeg installed successfully."
+    } else {
+        Write-Host-Warning "Failed to install FFmpeg via winget."
+    }
+} else {
+    Write-Host-Success "FFmpeg is already installed."
+}
+
+# 4. Add gallery-dl to PATH
 Write-Host-Info "Configuring environment variables for gallery-dl..."
 $pythonUserBase = python -m site --user-base
 $scriptsPath = Join-Path $pythonUserBase "Scripts"
@@ -63,7 +78,7 @@ if (Test-Path $scriptsPath) {
     Write-Host-Warning "Could not locate Python Scripts directory at $scriptsPath."
 }
 
-# 4. Install Rust
+# 5. Install Rust
 Write-Host-Info "Checking for Rust..."
 if (!(Get-Command rustc -ErrorAction SilentlyContinue)) {
     Write-Host-Info "Rust not found. Downloading rustup-init.exe..."
