@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Image } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
-import { getGallery, imageUrl } from '../api';
+import { getGallery, imageUrl, thumbnailUrl } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import './GalleryDetailPage.css';
 
@@ -61,7 +61,7 @@ export default function GalleryDetailPage() {
           renderItem={(img) => (
             <>
               <img
-                src={imageUrl(img.hash, img.extension)}
+                src={thumbnailUrl(img.hash, img.extension)}
                 alt={img.original_filename || ''}
                 loading="lazy"
               />

@@ -10,6 +10,8 @@ pub struct Image {
     pub extension: String,
     pub original_filename: Option<String>,
     pub file_size_bytes: i64,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
     pub created_at: String,
 }
 
@@ -22,10 +24,12 @@ impl Image {
         extension: &str,
         original_filename: Option<&str>,
         file_size_bytes: i64,
+        width: Option<i32>,
+        height: Option<i32>,
     ) -> Result<Self, sqlx::Error> {
         let id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO images (id, gallery_id, hash, extension, original_filename, file_size_bytes) VALUES (?, ?, ?, ?, ?, ?)"
+            "INSERT INTO images (id, gallery_id, hash, extension, original_filename, file_size_bytes, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&id)
         .bind(gallery_id)
@@ -33,6 +37,8 @@ impl Image {
         .bind(extension)
         .bind(original_filename)
         .bind(file_size_bytes)
+        .bind(width)
+        .bind(height)
         .execute(pool)
         .await?;
 

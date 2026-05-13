@@ -70,11 +70,11 @@ async fn run_worker(
 async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
     info!(request_id = %job.request_id, url = %job.url, "Processing download job");
 
-    // Update status to downloading
+    // Update status to processing immediately, since files stream in real-time
     if let Err(e) =
-        DownloadRequest::update_status(pool, &job.request_id, "downloading", None).await
+        DownloadRequest::update_status(pool, &job.request_id, "processing", None).await
     {
-        error!(error = %e, "Failed to update request status to downloading");
+        error!(error = %e, "Failed to update request status to processing");
         return;
     }
 
@@ -83,135 +83,108 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
         .join("temp")
         .join(&job.request_id);
 
-    // Run gallery-dl
-    let download_result =
-        match downloader::run_gallery_dl(&config.gallery_dl_bin, &job.url, &temp_dir).await {
-            Ok(result) => result,
-            Err(e) => {
-                error!(error = %e, "gallery-dl failed");
-                let _ = DownloadRequest::update_status(
-                    pool,
-                    &job.request_id,
-                    "failed",
-                    Some(&e),
-                )
-                .await;
-                // Clean up temp dir
-                let _ = tokio::fs::remove_dir_all(&temp_dir).await;
-                return;
-            }
-        };
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let gallery_dl_bin = config.gallery_dl_bin.clone();
+    let url = job.url.clone();
+    let temp_dir_clone = temp_dir.clone();
 
-    // Update status to processing
-    if let Err(e) =
-        DownloadRequest::update_status(pool, &job.request_id, "processing", None).await
-    {
-        error!(error = %e, "Failed to update request status to processing");
-        return;
-    }
+    // Spawn gallery-dl in the background
+    let dl_task = tokio::spawn(async move {
+        downloader::run_gallery_dl(&gallery_dl_bin, &url, &temp_dir_clone, tx).await
+    });
 
-    // Process files (hash, classify, move)
     let storage_dir = PathBuf::from(&config.storage_dir);
-    let processed_files =
-        match file_processor::process_files(download_result.files, &storage_dir).await {
-            Ok(files) => files,
-            Err(e) => {
-                error!(error = %e, "File processing failed");
-                let _ = DownloadRequest::update_status(
-                    pool,
-                    &job.request_id,
-                    "failed",
-                    Some(&e),
-                )
-                .await;
-                let _ = tokio::fs::remove_dir_all(&temp_dir).await;
-                return;
-            }
-        };
+    let mut gallery_id = None;
+    let mut image_count = 0;
+    let mut video_count = 0;
 
-    // Separate images and videos
-    let images: Vec<_> = processed_files
-        .iter()
-        .filter(|f| f.media_type == MediaType::Image)
-        .collect();
-    let videos: Vec<_> = processed_files
-        .iter()
-        .filter(|f| f.media_type == MediaType::Video)
-        .collect();
+    // Process files sequentially as they arrive
+    while let Some(file_path) = rx.recv().await {
+        match file_processor::process_single_file(&file_path, &storage_dir).await {
+            Ok(Some(processed)) => {
+                match processed.media_type {
+                    MediaType::Image => {
+                        // Lazily create gallery on first image
+                        if gallery_id.is_none() {
+                            match Gallery::create(pool, &job.request_id, None).await {
+                                Ok(g) => {
+                                    info!(gallery_id = %g.id, "Created gallery");
+                                    gallery_id = Some(g.id);
+                                }
+                                Err(e) => {
+                                    error!(error = %e, "Failed to create gallery");
+                                    continue;
+                                }
+                            }
+                        }
 
-    // Create gallery + image records if there are images
-    if !images.is_empty() {
-        match Gallery::create(pool, &job.request_id, None).await {
-            Ok(gallery) => {
-                for img in &images {
-                    if let Err(e) = Image::create(
-                        pool,
-                        &gallery.id,
-                        &img.hash,
-                        &img.extension,
-                        Some(&img.original_filename),
-                        img.file_size_bytes,
-                    )
-                    .await
-                    {
-                        error!(error = %e, hash = %img.hash, "Failed to insert image record");
+                        if let Some(ref gid) = gallery_id {
+                            if let Err(e) = Image::create(
+                                pool,
+                                gid,
+                                &processed.hash,
+                                &processed.extension,
+                                Some(&processed.original_filename),
+                                processed.file_size_bytes,
+                                processed.width,
+                                processed.height,
+                            )
+                            .await
+                            {
+                                error!(error = %e, hash = %processed.hash, "Failed to insert image record");
+                            } else {
+                                image_count += 1;
+                            }
+                        }
                     }
+                    MediaType::Video => {
+                        if let Err(e) = Video::create(
+                            pool,
+                            &job.request_id,
+                            &processed.hash,
+                            &processed.extension,
+                            Some(&processed.original_filename),
+                            processed.file_size_bytes,
+                        )
+                        .await
+                        {
+                            error!(error = %e, hash = %processed.hash, "Failed to insert video record");
+                        } else {
+                            video_count += 1;
+                        }
+                    }
+                    MediaType::Unknown => {}
                 }
-                info!(
-                    gallery_id = %gallery.id,
-                    image_count = images.len(),
-                    "Created gallery with images"
-                );
             }
+            Ok(None) => {}
             Err(e) => {
-                error!(error = %e, "Failed to create gallery");
-                let _ = DownloadRequest::update_status(
-                    pool,
-                    &job.request_id,
-                    "failed",
-                    Some(&format!("Failed to create gallery: {e}")),
-                )
-                .await;
-                let _ = tokio::fs::remove_dir_all(&temp_dir).await;
-                return;
+                error!(error = %e, path = %file_path.display(), "File processing failed");
             }
         }
     }
 
-    // Create video records (linked directly to request)
-    for vid in &videos {
-        if let Err(e) = Video::create(
-            pool,
-            &job.request_id,
-            &vid.hash,
-            &vid.extension,
-            Some(&vid.original_filename),
-            vid.file_size_bytes,
-        )
-        .await
-        {
-            error!(error = %e, hash = %vid.hash, "Failed to insert video record");
+    // Wait for the gallery-dl process to finish to check for final errors
+    let dl_result = match dl_task.await {
+        Ok(res) => res,
+        Err(e) => {
+            error!(error = %e, "gallery-dl task panicked");
+            Err("gallery-dl task panicked".to_string())
         }
-    }
+    };
 
-    if !videos.is_empty() {
-        info!(video_count = videos.len(), "Created video records");
-    }
-
-    // Mark request as completed
-    if let Err(e) =
-        DownloadRequest::update_status(pool, &job.request_id, "completed", None).await
-    {
-        error!(error = %e, "Failed to update request status to completed");
+    if let Err(e) = dl_result {
+        error!(error = %e, "gallery-dl failed");
+        let _ = DownloadRequest::update_status(pool, &job.request_id, "failed", Some(&e)).await;
+    } else {
+        let _ = DownloadRequest::update_status(pool, &job.request_id, "completed", None).await;
+        info!(
+            request_id = %job.request_id,
+            images = image_count,
+            videos = video_count,
+            "Download job completed successfully"
+        );
     }
 
     // Clean up temp dir
     let _ = tokio::fs::remove_dir_all(&temp_dir).await;
-
-    info!(
-        request_id = %job.request_id,
-        images = images.len(),
-        videos = videos.len(),
-        "Download job completed"
-    );
 }

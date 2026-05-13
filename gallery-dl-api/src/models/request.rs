@@ -46,6 +46,14 @@ impl DownloadRequest {
             .await
     }
 
+    /// Get a request by URL.
+    pub async fn get_by_url(pool: &SqlitePool, url: &str) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Self>("SELECT * FROM requests WHERE url = ?")
+            .bind(url)
+            .fetch_optional(pool)
+            .await
+    }
+
     /// List requests with pagination.
     pub async fn list(
         pool: &SqlitePool,

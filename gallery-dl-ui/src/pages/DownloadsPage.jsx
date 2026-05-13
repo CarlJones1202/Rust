@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Download, ExternalLink } from 'lucide-react';
-import { listRequests } from '../api';
+import { Download, ExternalLink, RefreshCcw } from 'lucide-react';
+import { listRequests, requeueRequest } from '../api';
 import StatusBadge from '../components/StatusBadge';
 import Pagination from '../components/Pagination';
 import './DownloadsPage.css';
@@ -49,6 +49,15 @@ export default function DownloadsPage() {
   const isPolling = data?.data.some((r) =>
     ['pending', 'downloading', 'processing'].includes(r.status)
   );
+
+  const handleRequeue = async (id) => {
+    try {
+      await requeueRequest(id);
+      fetchData(page);
+    } catch (err) {
+      alert(`Failed to requeue: ${err.message}`);
+    }
+  };
 
   if (loading && !data) {
     return <div className="empty-state"><p>Loading...</p></div>;
@@ -105,6 +114,14 @@ export default function DownloadsPage() {
                   >
                     <ExternalLink size={14} />
                   </a>
+                  <button
+                    onClick={() => handleRequeue(req.id)}
+                    className="btn btn-ghost"
+                    title="Re-queue (purge and restart)"
+                    disabled={['pending', 'downloading', 'processing'].includes(req.status)}
+                  >
+                    <RefreshCcw size={14} />
+                  </button>
                 </div>
               </div>
             ))}

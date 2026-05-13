@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LayoutGrid, Image } from 'lucide-react';
-import { listGalleries, getGallery, imageUrl } from '../api';
+import { listGalleries, getGallery, imageUrl, thumbnailUrl } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import Pagination from '../components/Pagination';
 import './GalleriesPage.css';
@@ -57,7 +57,6 @@ export default function GalleriesPage() {
         <>
           <MediaGrid
             items={data?.data || []}
-            large
             onItemClick={(gallery) => navigate(`/galleries/${gallery.id}`)}
             renderItem={(gallery) => {
               const cover = galleryCoverCache[gallery.id];
@@ -65,7 +64,7 @@ export default function GalleriesPage() {
                 <div className="gallery-card-inner">
                   {cover ? (
                     <img
-                      src={imageUrl(cover.hash, cover.extension)}
+                      src={thumbnailUrl(cover.hash, cover.extension)}
                       alt={gallery.title || 'Gallery'}
                       loading="lazy"
                     />

@@ -1,90 +1,89 @@
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
-/// Result of a gallery-dl download.
-pub struct DownloadResult {
-    pub files: Vec<PathBuf>,
-}
-
 /// Run gallery-dl for a given URL, downloading files to `temp_dir`.
-/// Returns a list of file paths that were downloaded.
+/// Run gallery-dl for a given URL, downloading files to `temp_dir`.
+/// Sends downloaded file paths sequentially via the provided channel.
 pub async fn run_gallery_dl(
     gallery_dl_bin: &str,
     url: &str,
     temp_dir: &Path,
-) -> Result<DownloadResult, String> {
-    info!(url = url, dir = ?temp_dir, "Starting gallery-dl download");
-
+    tx: mpsc::UnboundedSender<PathBuf>,
+) -> Result<(), String> {
     // Ensure temp directory exists
     tokio::fs::create_dir_all(temp_dir)
         .await
         .map_err(|e| format!("Failed to create temp dir: {e}"))?;
 
-    let output = Command::new(gallery_dl_bin)
-        .arg("-D")  // exact download directory (no subdirectories)
-        .arg(temp_dir.to_string_lossy().to_string())
-        .arg("--print")
-        .arg("after:{_path}")
+    // Convert to absolute normalized path
+    let abs_temp_dir = std::fs::canonicalize(temp_dir)
+        .map_err(|e| format!("Failed to canonicalize temp dir: {e}"))?;
+
+    // On Windows, canonicalize returns UNC paths (\\?\C:\...). 
+    // Strip the prefix to ensure compatibility with gallery-dl.
+    let abs_temp_str = abs_temp_dir.to_string_lossy().to_string();
+    let abs_temp_str = abs_temp_str.strip_prefix(r"\\?\").unwrap_or(&abs_temp_str).to_string();
+
+    info!(url = url, dir = %abs_temp_str, "Running gallery-dl");
+
+    let mut cmd = Command::new(gallery_dl_bin);
+    cmd.arg("-d")
+        .arg(&abs_temp_str)
         .arg("--no-mtime")
-        .arg(url)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await
+        .arg(url);
+
+    debug!("Exec: {:?} {} {} {} {}", 
+        gallery_dl_bin, "-d", abs_temp_str, "--no-mtime", url);
+
+    let mut child = cmd
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|e| format!("Failed to spawn gallery-dl: {e}"))?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
 
-    if !stderr.is_empty() {
-        debug!(stderr = %stderr, "gallery-dl stderr");
-    }
+    // Spawn a task to log stderr so we don't block
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            debug!(stderr = %line, "gallery-dl stderr");
+        }
+    });
 
-    if !output.status.success() {
-        let code = output.status.code().unwrap_or(-1);
-        error!(code = code, stderr = %stderr, "gallery-dl exited with non-zero code, but might have partially succeeded");
-    }
-
-    // Parse printed file paths from stdout (one per line)
-    let files: Vec<PathBuf> = stdout
-        .lines()
-        .map(|line| line.trim())
-        .filter(|line| !line.is_empty())
-        .map(PathBuf::from)
-        .filter(|p| p.exists())
-        .collect();
-
-    info!(count = files.len(), "gallery-dl downloaded files");
-
-    if files.is_empty() {
-        // Fallback: scan the temp directory for any files
-        let mut fallback_files = Vec::new();
-        if let Ok(mut entries) = tokio::fs::read_dir(temp_dir).await {
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                let path = entry.path();
-                if path.is_file() {
-                    fallback_files.push(path);
-                }
-            }
+    let mut reader = BufReader::new(stdout).lines();
+    while let Ok(Some(line)) = reader.next_line().await {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
         }
 
-        if fallback_files.is_empty() {
-            let code = output.status.code().unwrap_or(-1);
-            return Err(format!(
-                "gallery-dl produced no files. Exit code: {code}. Stderr: {stderr}"
-            ));
-        }
+        let p = PathBuf::from(line);
+        let p = if p.is_absolute() {
+            p
+        } else {
+            abs_temp_dir.join(p)
+        };
 
-        info!(
-            count = fallback_files.len(),
-            "Using fallback directory scan for downloaded files"
-        );
-        return Ok(DownloadResult {
-            files: fallback_files,
-        });
+        if p.exists() {
+            // Ignore send errors in case the receiver dropped
+            let _ = tx.send(p);
+        }
     }
 
-    Ok(DownloadResult { files })
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| format!("Failed to wait on gallery-dl: {e}"))?;
+
+    if !status.success() {
+        let code = status.code().unwrap_or(-1);
+        error!(code = code, "gallery-dl exited with non-zero code, but might have partially succeeded");
+    }
+
+    Ok(())
 }

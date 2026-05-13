@@ -37,20 +37,35 @@ export default function UrlSubmitForm() {
           return;
         }
         let successCount = 0;
+        let duplicateCount = 0;
         for (const u of urls) {
           try {
             await submitSingle(u);
             successCount++;
-          } catch {
-            // continue with remaining URLs
+          } catch (err) {
+            if (err.message === 'URL already exists') {
+              duplicateCount++;
+            }
           }
         }
         setBulkUrls('');
-        showFeedback('success', `Queued ${successCount} of ${urls.length} URLs`);
+        if (duplicateCount > 0) {
+          alert(`${duplicateCount} URL(s) were already submitted and skipped.`);
+        }
+        showFeedback('success', `Queued ${successCount} new URLs`);
       } else {
-        await submitSingle(url);
-        setUrl('');
-        showFeedback('success', 'URL queued for download');
+        try {
+          await submitSingle(url);
+          setUrl('');
+          showFeedback('success', 'URL queued for download');
+        } catch (err) {
+          if (err.message === 'URL already exists') {
+            alert(`This URL has already been submitted.`);
+            setUrl('');
+          } else {
+            throw err;
+          }
+        }
       }
     } catch (err) {
       showFeedback('error', err.message || 'Failed to submit');

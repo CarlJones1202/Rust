@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Image } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
-import { listImages, imageUrl } from '../api';
+import { listImages, imageUrl, thumbnailUrl } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import Pagination from '../components/Pagination';
 import './ImagesPage.css';
@@ -52,7 +52,7 @@ export default function ImagesPage() {
             renderItem={(img) => (
               <>
                 <img
-                  src={imageUrl(img.hash, img.extension)}
+                  src={thumbnailUrl(img.hash, img.extension)}
                   alt={img.original_filename || ''}
                   loading="lazy"
                 />

@@ -44,6 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let storage_dir = PathBuf::from(&config.storage_dir);
     tokio::fs::create_dir_all(storage_dir.join("images")).await?;
     tokio::fs::create_dir_all(storage_dir.join("videos")).await?;
+    tokio::fs::create_dir_all(storage_dir.join("thumbnails")).await?;
     tokio::fs::create_dir_all(storage_dir.join("temp")).await?;
     info!(dir = %config.storage_dir, "Storage directories ready");
 
@@ -67,6 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/requests", post(handlers::requests::create_request))
         .route("/api/requests", get(handlers::requests::list_requests))
         .route("/api/requests/{id}", get(handlers::requests::get_request))
+        .route("/api/requests/{id}/requeue", post(handlers::requests::requeue_request))
         .route("/api/galleries", get(handlers::galleries::list_galleries))
         .route("/api/galleries/{id}", get(handlers::galleries::get_gallery))
         .route("/api/images", get(handlers::images::list_images))
@@ -79,6 +81,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest_service(
             "/media/videos",
             ServeDir::new(storage_dir.join("videos")),
+        )
+        .nest_service(
+            "/media/thumbnails",
+            ServeDir::new(storage_dir.join("thumbnails")),
         )
         .with_state(state)
         .layer(

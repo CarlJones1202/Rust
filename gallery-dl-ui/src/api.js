@@ -33,6 +33,12 @@ export function getRequest(id) {
   return request(`/api/requests/${id}`);
 }
 
+export function requeueRequest(id) {
+  return request(`/api/requests/${id}/requeue`, {
+    method: 'POST',
+  });
+}
+
 // --- Galleries ---
 
 export function listGalleries(page = 1, perPage = 50) {
@@ -59,6 +65,10 @@ export function listVideos(page = 1, perPage = 50) {
 
 export function imageUrl(hash, extension) {
   return `${API_BASE}/media/images/${hash}.${extension}`;
+}
+
+export function thumbnailUrl(hash, extension) {
+  return `${API_BASE}/media/thumbnails/${hash}.${extension}`;
 }
 
 export function videoUrl(hash, extension) {
