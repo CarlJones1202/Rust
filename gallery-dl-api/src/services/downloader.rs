@@ -44,10 +44,7 @@ pub async fn run_gallery_dl(
 
     if !output.status.success() {
         let code = output.status.code().unwrap_or(-1);
-        error!(code = code, stderr = %stderr, "gallery-dl exited with error");
-        return Err(format!(
-            "gallery-dl exited with code {code}: {stderr}"
-        ));
+        error!(code = code, stderr = %stderr, "gallery-dl exited with non-zero code, but might have partially succeeded");
     }
 
     // Parse printed file paths from stdout (one per line)
@@ -74,7 +71,10 @@ pub async fn run_gallery_dl(
         }
 
         if fallback_files.is_empty() {
-            return Err("gallery-dl produced no files".to_string());
+            let code = output.status.code().unwrap_or(-1);
+            return Err(format!(
+                "gallery-dl produced no files. Exit code: {code}. Stderr: {stderr}"
+            ));
         }
 
         info!(

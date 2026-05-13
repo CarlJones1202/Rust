@@ -1,0 +1,103 @@
+import { useState } from 'react';
+import { Send, List } from 'lucide-react';
+import { createRequest } from '../api';
+import './UrlSubmitForm.css';
+
+export default function UrlSubmitForm() {
+  const [url, setUrl] = useState('');
+  const [bulkUrls, setBulkUrls] = useState('');
+  const [bulkMode, setBulkMode] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState(null);
+
+  const showFeedback = (type, message) => {
+    setFeedback({ type, message });
+    setTimeout(() => setFeedback(null), 4000);
+  };
+
+  const submitSingle = async (targetUrl) => {
+    const trimmed = targetUrl.trim();
+    if (!trimmed) return;
+    await createRequest(trimmed);
+    return trimmed;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      if (bulkMode) {
+        const urls = bulkUrls
+          .split('\n')
+          .map((u) => u.trim())
+          .filter((u) => u.length > 0);
+        if (urls.length === 0) {
+          showFeedback('error', 'No URLs provided');
+          setSubmitting(false);
+          return;
+        }
+        let successCount = 0;
+        for (const u of urls) {
+          try {
+            await submitSingle(u);
+            successCount++;
+          } catch {
+            // continue with remaining URLs
+          }
+        }
+        setBulkUrls('');
+        showFeedback('success', `Queued ${successCount} of ${urls.length} URLs`);
+      } else {
+        await submitSingle(url);
+        setUrl('');
+        showFeedback('success', 'URL queued for download');
+      }
+    } catch (err) {
+      showFeedback('error', err.message || 'Failed to submit');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form className="url-form" onSubmit={handleSubmit}>
+      <div className="url-form-inputs">
+        {bulkMode ? (
+          <textarea
+            value={bulkUrls}
+            onChange={(e) => setBulkUrls(e.target.value)}
+            placeholder="Paste URLs here, one per line..."
+            disabled={submitting}
+          />
+        ) : (
+          <div className="url-input-row">
+            <input
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="Paste a URL to download..."
+              disabled={submitting}
+            />
+          </div>
+        )}
+        {feedback && (
+          <div className={`submit-feedback ${feedback.type}`}>
+            {feedback.message}
+          </div>
+        )}
+      </div>
+      <button
+        type="button"
+        className={`btn btn-ghost ${bulkMode ? 'active' : ''}`}
+        onClick={() => setBulkMode(!bulkMode)}
+        title="Toggle bulk mode"
+      >
+        <List size={18} />
+      </button>
+      <button type="submit" className="btn btn-primary" disabled={submitting}>
+        <Send size={16} />
+        {submitting ? 'Sending...' : 'Submit'}
+      </button>
+    </form>
+  );
+}
