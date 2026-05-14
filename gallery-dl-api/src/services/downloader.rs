@@ -53,8 +53,12 @@ pub async fn run_gallery_dl(
         .arg(&abs_temp_str)
         .arg("--no-mtime");
 
+    // Ensure JS runtime is enabled for yt-dlp with absolute path to node
     cmd.arg("-o")
-        .arg("ytdl-args=[\"--js-runtimes\", \"node\", \"--remote-components\", \"ejs:github\"]");
+        .arg("ytdl-args=[\"--js-runtimes\", \"C:/Program Files/nodejs/node.exe\", \"--remote-components\", \"ejs:github\"]");
+
+    // Prevent gallery-dl from trying to write back to cookies.txt (avoids Access Denied errors)
+    cmd.arg("-o").arg("cookies-update=false");
 
     // Use cookies.txt if it exists, otherwise fall back to browser extraction if configured
     if std::path::Path::new("cookies.txt").exists() {
