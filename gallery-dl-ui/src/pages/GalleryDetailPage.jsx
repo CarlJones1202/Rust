@@ -54,7 +54,7 @@ export default function GalleryDetailPage() {
   const slides = images.map((img) => ({
     src: imageUrl(img.hash, img.extension),
     title: img.original_filename || `${img.hash}.${img.extension}`,
-    description: (
+    description: showMetadata ? (
       <div className="lightbox-metadata">
         <div className="metadata-row">
           <span className="metadata-label">Dimensions</span>

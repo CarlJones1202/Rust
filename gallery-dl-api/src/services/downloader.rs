@@ -54,8 +54,8 @@ pub async fn run_gallery_dl(
         let archive_path = abs_temp_dir.join("archive.txt");
         c.arg("--download-archive").arg(archive_path);
 
-        // Printing filepath for our processor (video trigger ensures it prints even if skipped/already exists)
-        c.arg("--print").arg("video:filepath");
+        // Printing filename for our processor (always works, even if skipped/in archive)
+        c.arg("--print").arg("filename");
         c.arg("--no-progress");
         
         c
@@ -130,6 +130,8 @@ pub async fn run_gallery_dl(
     });
 
     let mut reader = BufReader::new(stdout).lines();
+    let mut downloaded_paths = Vec::new();
+
     while let Ok(Some(line)) = reader.next_line().await {
         let line = line.trim();
         if line.is_empty() || line == "NA" {
@@ -144,10 +146,7 @@ pub async fn run_gallery_dl(
         } else {
             abs_temp_dir.join(p)
         };
-
-        if p.exists() {
-            let _ = tx.send(p);
-        }
+        downloaded_paths.push(p);
     }
 
     let status = child
@@ -159,6 +158,13 @@ pub async fn run_gallery_dl(
         let code = status.code().unwrap_or(-1);
         error!(code = code, "downloader exited with non-zero code");
         return Err(format!("downloader exited with code {code}"));
+    }
+
+    // Only send the paths after the process has successfully finished
+    for p in downloaded_paths {
+        if p.exists() {
+            let _ = tx.send(p);
+        }
     }
 
     Ok(())
