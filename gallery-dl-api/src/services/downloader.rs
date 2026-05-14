@@ -54,8 +54,8 @@ pub async fn run_gallery_dl(
         let archive_path = abs_temp_dir.join("archive.txt");
         c.arg("--download-archive").arg(archive_path);
 
-        // Printing filepath for our processor (after_video ensures it prints even if skipped)
-        c.arg("--print").arg("after_video:filepath");
+        // Printing filepath for our processor (video trigger ensures it prints even if skipped/already exists)
+        c.arg("--print").arg("video:filepath");
         c.arg("--no-progress");
         
         c
@@ -132,7 +132,7 @@ pub async fn run_gallery_dl(
     let mut reader = BufReader::new(stdout).lines();
     while let Ok(Some(line)) = reader.next_line().await {
         let line = line.trim();
-        if line.is_empty() {
+        if line.is_empty() || line == "NA" {
             continue;
         }
 
