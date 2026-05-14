@@ -320,7 +320,7 @@ fn generate_video_thumbnail(src: &Path, dst: &Path) -> Result<(), String> {
 }
 
 /// Get the duration of a video using ffprobe.
-fn get_video_duration(path: &Path) -> Result<f64, String> {
+pub fn get_video_duration(path: &Path) -> Result<f64, String> {
     use std::process::Command;
 
     let output = Command::new("ffprobe")
@@ -343,7 +343,7 @@ fn get_video_duration(path: &Path) -> Result<f64, String> {
 }
 
 /// Get the dimensions of a video using ffprobe.
-fn get_video_dimensions(path: &Path) -> Result<(i32, i32), String> {
+pub fn get_video_dimensions(path: &Path) -> Result<(i32, i32), String> {
     use std::process::Command;
 
     let output = Command::new("ffprobe")

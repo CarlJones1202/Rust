@@ -27,10 +27,16 @@ pub async fn run_gallery_dl(
     let abs_temp_str = abs_temp_str.strip_prefix(r"\\?\").unwrap_or(&abs_temp_str).to_string();
 
     let lower_url = url.to_lowercase();
-    let is_youtube = lower_url.contains("youtube.com") || lower_url.contains("youtu.be");
 
-    let mut cmd = if is_youtube {
-        info!(url = %url, "Using yt-dlp directly for YouTube");
+    let use_yt_dlp = lower_url.contains("youtube.com") 
+        || lower_url.contains("youtu.be")
+        || lower_url.contains("tnaflix.com")
+        || lower_url.contains("vimeo.com")
+        || lower_url.contains("dailymotion.com")
+        || lower_url.contains("tiktok.com");
+
+    let mut cmd = if use_yt_dlp {
+        info!(url = %url, "Using yt-dlp directly for video site");
         let mut c = Command::new("yt-dlp");
         
         // Output and location
@@ -48,20 +54,16 @@ pub async fn run_gallery_dl(
         let archive_path = abs_temp_dir.join("archive.txt");
         c.arg("--download-archive").arg(archive_path);
 
-        // Printing filepath for our processor
-        c.arg("--print").arg("after_move:filepath");
+        // Printing filepath for our processor (after_video ensures it prints even if skipped)
+        c.arg("--print").arg("after_video:filepath");
         c.arg("--no-progress");
         
         c
     } else {
-        // Detect if we should use ytdl prefix for other video sites
-        let is_video_site = lower_url.contains("vimeo.com")
-            || lower_url.contains("dailymotion.com")
-            || lower_url.contains("tiktok.com")
-            || lower_url.contains("twitter.com")
+        // Detect if we should use ytdl prefix for other video sites (social/misc)
+        let is_video_site = lower_url.contains("twitter.com")
             || lower_url.contains("x.com")
-            || lower_url.contains("instagram.com")
-            || lower_url.contains("tnaflix.com");
+            || lower_url.contains("instagram.com");
 
         let final_url = if is_video_site && !url.starts_with("ytdl:") {
             format!("ytdl:{}", url)
@@ -82,28 +84,19 @@ pub async fn run_gallery_dl(
         c
     };
 
-    // Shared cookie logic
     if std::path::Path::new("cookies.txt").exists() {
         cmd.arg("--cookies").arg("cookies.txt");
     } else if let Some(browser) = cookies_from_browser {
-        if is_youtube {
-            cmd.arg("--cookies-from-browser").arg(browser);
-        } else {
-            cmd.arg("--cookies-from-browser").arg(browser);
-        }
+        cmd.arg("--cookies-from-browser").arg(browser);
     }
 
     // Append the URL at the end
-    if is_youtube {
+    if use_yt_dlp {
         cmd.arg(url);
     } else {
-        let is_video_site = lower_url.contains("vimeo.com")
-            || lower_url.contains("dailymotion.com")
-            || lower_url.contains("tiktok.com")
-            || lower_url.contains("twitter.com")
+        let is_video_site = lower_url.contains("twitter.com")
             || lower_url.contains("x.com")
-            || lower_url.contains("instagram.com")
-            || lower_url.contains("tnaflix.com");
+            || lower_url.contains("instagram.com");
 
         let final_url = if is_video_site && !url.starts_with("ytdl:") {
             format!("ytdl:{}", url)
@@ -128,7 +121,7 @@ pub async fn run_gallery_dl(
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            if is_youtube {
+            if use_yt_dlp {
                 info!(stderr = %line, "yt-dlp");
             } else {
                 warn!(stderr = %line, "gallery-dl");
@@ -142,6 +135,8 @@ pub async fn run_gallery_dl(
         if line.is_empty() {
             continue;
         }
+
+        info!(line = %line, "Downloader stdout");
 
         let p = PathBuf::from(line);
         let p = if p.is_absolute() {

@@ -244,19 +244,22 @@ fn remove_noise(parts: Vec<String>) -> Vec<String> {
 fn strip_trailing_numbers(mut parts: Vec<String>) -> Vec<String> {
     while !parts.is_empty() {
         let last = &parts[parts.len() - 1];
-        if last.len() <= 2 && last.chars().all(|c| c.is_digit(10)) {
+        // Only strip 1-3 digit numbers
+        if last.len() <= 3 && last.chars().all(|c| c.is_digit(10)) {
             if parts.len() >= 2 {
                 let prev = parts[parts.len() - 2].to_lowercase();
                 let keep_words = [
                     "part", "vol", "volume", "chapter", "set", "ii", "iii",
-                    "door", "circles", "rambler", "life", "overdrive"
+                    "door", "circles", "rambler", "life", "overdrive", "fans",
+                    "issue", "no", "scene"
                 ];
                 if keep_words.contains(&prev.as_str()) {
                     break;
                 }
 
                 if let Ok(num) = last.parse::<i32>() {
-                    if num <= 4 && parts[parts.len() - 2].chars().next().unwrap_or(' ').is_uppercase() {
+                    // Keep small numbers (1-5) as they are likely set/part numbers
+                    if num <= 5 {
                         break;
                     }
                 }
@@ -332,6 +335,17 @@ fn is_model_name_word(word: &str) -> bool {
     first_char.is_uppercase() && clean.chars().all(|c| c.is_alphabetic())
 }
 
+fn title_case(s: &str) -> String {
+    if s.is_empty() {
+        return s.to_string();
+    }
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase(),
+    }
+}
+
 async fn format_title(pool: &SqlitePool, parts: Vec<String>) -> String {
     if parts.is_empty() {
         return "Unknown".to_string();
@@ -341,20 +355,26 @@ async fn format_title(pool: &SqlitePool, parts: Vec<String>) -> String {
 
     if let Some(model) = model_name {
         if consumed < parts.len() {
-            let title = parts[consumed..].join(" ");
+            let title_parts: Vec<String> = parts[consumed..].iter().map(|s| title_case(s)).collect();
+            let title = title_parts.join(" ");
             return format!("{} - {}", model, title);
         } else {
             return model;
         }
     }
 
-    // Fallback heuristic
+    // Fallback heuristic: first 1-3 words are model name
     let mut model_parts = Vec::new();
     let mut title_start = 0;
 
     for (i, part) in parts.iter().enumerate() {
-        if is_model_name_word(part) && i < 4 {
-            model_parts.push(part.clone());
+        // If it was already capitalized, it's likely a name
+        // Or if it's the first few words of a lowercase slug
+        let looks_like_name = is_model_name_word(part) || 
+                             (i < 2 && part.len() >= 3 && part.chars().all(|c| c.is_alphabetic()));
+        
+        if looks_like_name && i < 3 {
+            model_parts.push(title_case(part));
             title_start = i + 1;
         } else {
             break;
@@ -363,9 +383,10 @@ async fn format_title(pool: &SqlitePool, parts: Vec<String>) -> String {
 
     if !model_parts.is_empty() && title_start < parts.len() {
         let model = model_parts.join(" ");
-        let title = parts[title_start..].join(" ");
+        let title_parts: Vec<String> = parts[title_start..].iter().map(|s| title_case(s)).collect();
+        let title = title_parts.join(" ");
         format!("{} - {}", model, title)
     } else {
-        parts.join(" ")
+        parts.iter().map(|s| title_case(s)).collect::<Vec<String>>().join(" ")
     }
 }

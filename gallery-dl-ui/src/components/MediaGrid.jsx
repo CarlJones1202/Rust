@@ -5,7 +5,12 @@ export default function MediaGrid({ items, onItemClick, renderItem, layout = 'ju
     <div className={`media-grid layout-${layout}`}>
       {items.map((item, index) => {
         // Calculate aspect ratio for justified layout
-        const aspectRatio = item.width && item.height ? item.width / item.height : 1;
+        // Default to 16:9 for videos if dimensions are missing
+        const isVideo = item.extension === 'mp4' || item.extension === 'mkv' || item.extension === 'webm';
+        const aspectRatio = item.width && item.height 
+          ? item.width / item.height 
+          : (isVideo ? 16 / 9 : 1);
+          
         const style = layout === 'justified' ? {
           flexGrow: aspectRatio,
           flexBasis: `${aspectRatio * 200}px`, // 200px is the target height

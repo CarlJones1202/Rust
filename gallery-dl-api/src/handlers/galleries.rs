@@ -161,8 +161,38 @@ pub async fn retroactive_update_titles(
         }
     }
 
+    // Update Video Metadata (Dimensions and Duration)
+    let videos: Vec<(String, String, String)> = sqlx::query_as("SELECT id, hash, extension FROM videos WHERE width IS NULL OR width = 0")
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+    let storage_dir = std::path::Path::new(&state.config.storage_dir);
+    let videos_dir = storage_dir.join("videos");
+    let mut videos_updated = 0;
+
+    for (id, hash, ext) in videos {
+        let video_path = videos_dir.join(format!("{}.{}", hash, ext));
+        if video_path.exists() {
+            let dims = crate::services::file_processor::get_video_dimensions(&video_path).ok();
+            let duration = crate::services::file_processor::get_video_duration(&video_path).ok();
+
+            if let Some((w, h)) = dims {
+                let _ = sqlx::query("UPDATE videos SET width = ?, height = ?, duration_seconds = ? WHERE id = ?")
+                    .bind(w)
+                    .bind(h)
+                    .bind(duration)
+                    .bind(&id)
+                    .execute(&state.db)
+                    .await;
+                videos_updated += 1;
+            }
+        }
+    }
+
     Ok(Json(serde_json::json!({ 
         "requests_updated": request_updated,
-        "galleries_updated": gallery_updated 
+        "galleries_updated": gallery_updated,
+        "videos_updated": videos_updated
     })))
 }

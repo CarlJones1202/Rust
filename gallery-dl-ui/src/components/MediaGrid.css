@@ -7,7 +7,6 @@
 
 .media-grid.layout-justified .media-grid-item {
   height: 200px; /* Target row height */
-  flex-grow: 1;
   position: relative;
   border-radius: var(--radius-sm);
   overflow: hidden;
