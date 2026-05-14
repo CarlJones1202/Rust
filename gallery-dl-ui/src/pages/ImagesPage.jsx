@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Image } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
+import Captions from 'yet-another-react-lightbox/plugins/captions';
 import 'yet-another-react-lightbox/styles.css';
+import 'yet-another-react-lightbox/plugins/captions.css';
 import { listImages, imageUrl, thumbnailUrl } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import Pagination from '../components/Pagination';
@@ -28,7 +31,39 @@ export default function ImagesPage() {
   const images = data?.data || [];
   const slides = images.map((img) => ({
     src: imageUrl(img.hash, img.extension),
-    alt: img.original_filename || `${img.hash}.${img.extension}`,
+    title: img.original_filename || `${img.hash}.${img.extension}`,
+    description: (
+      <div className="lightbox-metadata">
+        <div className="metadata-row">
+          <span className="metadata-label">Dimensions</span>
+          <span className="metadata-value">{img.width && img.height ? `${img.width} x ${img.height}` : 'Unknown'}</span>
+        </div>
+        <div className="metadata-row">
+          <span className="metadata-label">Size</span>
+          <span className="metadata-value">{(img.file_size_bytes / 1024 / 1024).toFixed(2)} MB</span>
+        </div>
+        {img.top_colors && (
+          <div className="metadata-row">
+            <span className="metadata-label">Colors</span>
+            <div className="color-palette">
+              {JSON.parse(img.top_colors).map(c => (
+                <div key={c} className="color-swatch" style={{ backgroundColor: c }} title={c} />
+              ))}
+            </div>
+          </div>
+        )}
+        {img.gallery_id && (
+          <div className="gallery-link-info">
+            <div className="metadata-row">
+              <span className="metadata-label">Gallery</span>
+              <Link to={`/galleries/${img.gallery_id}`} className="metadata-value" onClick={() => setLightboxIndex(-1)}>
+                {img.gallery_title || `Gallery ${img.gallery_id.slice(0, 8)}`}
+              </Link>
+            </div>
+          </div>
+        )}
+      </div>
+    ),
   }));
 
   return (
@@ -80,6 +115,9 @@ export default function ImagesPage() {
         index={lightboxIndex}
         close={() => setLightboxIndex(-1)}
         slides={slides}
+        controller={{ closeOnBackdropClick: true }}
+        plugins={[Captions]}
+        captions={{ descriptionTextAlign: 'left' }}
       />
     </div>
   );

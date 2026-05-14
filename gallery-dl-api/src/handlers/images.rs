@@ -5,7 +5,7 @@ use axum::{
 };
 use tracing::error;
 
-use crate::models::image::Image;
+use crate::models::image::{Image, ImageWithGallery};
 use crate::pagination::{PaginatedResponse, PaginationMeta, PaginationParams};
 use crate::AppState;
 
@@ -13,7 +13,7 @@ use crate::AppState;
 pub async fn list_images(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
-) -> Result<Json<PaginatedResponse<Image>>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Json<PaginatedResponse<ImageWithGallery>>, (StatusCode, Json<serde_json::Value>)> {
     let total = Image::count(&state.db).await.map_err(|e| {
         error!(error = %e, "Failed to count images");
         (

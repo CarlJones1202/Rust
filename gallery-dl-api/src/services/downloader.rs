@@ -23,64 +23,95 @@ pub async fn run_gallery_dl(
     let abs_temp_dir = std::fs::canonicalize(temp_dir)
         .map_err(|e| format!("Failed to canonicalize temp dir: {e}"))?;
 
-    // On Windows, canonicalize returns UNC paths (\\?\C:\...). 
-    // Strip the prefix to ensure compatibility with gallery-dl.
     let abs_temp_str = abs_temp_dir.to_string_lossy().to_string();
     let abs_temp_str = abs_temp_str.strip_prefix(r"\\?\").unwrap_or(&abs_temp_str).to_string();
 
-    // Detect if we should use ytdl prefix
     let lower_url = url.to_lowercase();
-    let is_video_site = lower_url.contains("youtube.com") 
-        || lower_url.contains("youtu.be")
-        || lower_url.contains("vimeo.com")
-        || lower_url.contains("dailymotion.com")
-        || lower_url.contains("tiktok.com")
-        || lower_url.contains("twitter.com")
-        || lower_url.contains("x.com")
-        || lower_url.contains("instagram.com")
-        || lower_url.contains("tnaflix.com");
+    let is_youtube = lower_url.contains("youtube.com") || lower_url.contains("youtu.be");
 
-    let final_url = if is_video_site && !url.starts_with("ytdl:") {
-        format!("ytdl:{}", url)
+    let mut cmd = if is_youtube {
+        info!(url = %url, "Using yt-dlp directly for YouTube");
+        let mut c = Command::new("yt-dlp");
+        
+        // Output and location
+        c.arg("-P").arg(&abs_temp_str);
+        c.arg("-o").arg("%(title)s-%(id)s.%(ext)s");
+        
+        // YouTube-specific fixes
+        c.arg("--js-runtimes").arg("node");
+        c.arg("--remote-components").arg("ejs:github");
+        
+        // Quality
+        c.arg("-f").arg("bestvideo+bestaudio/best");
+        
+        // Resuming
+        let archive_path = abs_temp_dir.join("archive.txt");
+        c.arg("--download-archive").arg(archive_path);
+
+        // Printing filepath for our processor
+        c.arg("--print").arg("after_move:filepath");
+        c.arg("--no-progress");
+        
+        c
     } else {
-        url.to_string()
+        // Detect if we should use ytdl prefix for other video sites
+        let is_video_site = lower_url.contains("vimeo.com")
+            || lower_url.contains("dailymotion.com")
+            || lower_url.contains("tiktok.com")
+            || lower_url.contains("twitter.com")
+            || lower_url.contains("x.com")
+            || lower_url.contains("instagram.com")
+            || lower_url.contains("tnaflix.com");
+
+        let final_url = if is_video_site && !url.starts_with("ytdl:") {
+            format!("ytdl:{}", url)
+        } else {
+            url.to_string()
+        };
+
+        info!(url = final_url, dir = %abs_temp_str, "Running gallery-dl");
+        let mut c = Command::new(gallery_dl_bin);
+        c.arg("-d").arg(&abs_temp_str).arg("--no-mtime");
+
+        // Forum-specific filters
+        if url.contains("vipergirls.to") {
+            c.arg("--chapter-filter").arg("post_num == '1'");
+        }
+        
+        c.arg("-o").arg("cookies-update=false");
+        c
     };
 
-    info!(url = final_url, dir = %abs_temp_str, "Running gallery-dl");
-
-    let mut cmd = Command::new(gallery_dl_bin);
-    cmd.arg("-d")
-        .arg(&abs_temp_str)
-        .arg("--no-mtime");
-
-    // Ensure JS runtime is enabled for yt-dlp with absolute path to node
-    cmd.arg("-o")
-        .arg("ytdl-args=[\"--js-runtimes\", \"C:/Program Files/nodejs/node.exe\", \"--remote-components\", \"ejs:github\"]");
-
-    // Prevent gallery-dl from trying to write back to cookies.txt (avoids Access Denied errors)
-    cmd.arg("-o").arg("cookies-update=false");
-
-    // Use cookies.txt if it exists, otherwise fall back to browser extraction if configured
+    // Shared cookie logic
     if std::path::Path::new("cookies.txt").exists() {
         cmd.arg("--cookies").arg("cookies.txt");
     } else if let Some(browser) = cookies_from_browser {
-        cmd.arg("--cookies-from-browser").arg(browser);
+        if is_youtube {
+            cmd.arg("--cookies-from-browser").arg(browser);
+        } else {
+            cmd.arg("--cookies-from-browser").arg(browser);
+        }
     }
 
-    // Add download archive to support efficient resuming
-    let archive_path = abs_temp_dir.join("archive.txt");
-    let archive_str = archive_path.to_string_lossy().to_string();
-    let archive_str = archive_str.strip_prefix(r"\\?\").unwrap_or(&archive_str).to_string();
-    cmd.arg("--download-archive")
-        .arg(archive_str);
+    // Append the URL at the end
+    if is_youtube {
+        cmd.arg(url);
+    } else {
+        let is_video_site = lower_url.contains("vimeo.com")
+            || lower_url.contains("dailymotion.com")
+            || lower_url.contains("tiktok.com")
+            || lower_url.contains("twitter.com")
+            || lower_url.contains("x.com")
+            || lower_url.contains("instagram.com")
+            || lower_url.contains("tnaflix.com");
 
-    // Forum-specific filters
-    if url.contains("vipergirls.to") {
-        cmd.arg("--chapter-filter")
-            .arg("post_num == '1'");
+        let final_url = if is_video_site && !url.starts_with("ytdl:") {
+            format!("ytdl:{}", url)
+        } else {
+            url.to_string()
+        };
+        cmd.arg(final_url);
     }
-
-    cmd.arg(final_url);
 
     debug!("Exec: {:?}", cmd);
 
@@ -88,16 +119,20 @@ pub async fn run_gallery_dl(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to spawn gallery-dl: {e}"))?;
+        .map_err(|e| format!("Failed to spawn downloader: {e}"))?;
 
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
 
-    // Spawn a task to log stderr so we don't block
+    // Log stderr (use info! for yt-dlp to see challenge solving)
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            warn!(stderr = %line, "gallery-dl stderr");
+            if is_youtube {
+                info!(stderr = %line, "yt-dlp");
+            } else {
+                warn!(stderr = %line, "gallery-dl");
+            }
         }
     });
 
@@ -116,7 +151,6 @@ pub async fn run_gallery_dl(
         };
 
         if p.exists() {
-            // Ignore send errors in case the receiver dropped
             let _ = tx.send(p);
         }
     }
@@ -124,12 +158,12 @@ pub async fn run_gallery_dl(
     let status = child
         .wait()
         .await
-        .map_err(|e| format!("Failed to wait on gallery-dl: {e}"))?;
+        .map_err(|e| format!("Failed to wait on downloader: {e}"))?;
 
     if !status.success() {
         let code = status.code().unwrap_or(-1);
-        error!(code = code, "gallery-dl exited with non-zero code");
-        return Err(format!("gallery-dl exited with code {code}"));
+        error!(code = code, "downloader exited with non-zero code");
+        return Err(format!("downloader exited with code {code}"));
     }
 
     Ok(())

@@ -78,6 +78,14 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         }
     }
 
+    // 008: Image Colors
+    if let Err(e) = sqlx::query("ALTER TABLE images ADD COLUMN top_colors TEXT").execute(pool).await {
+        let msg = e.to_string();
+        if !msg.contains("duplicate column name") {
+            error!(error = %msg, "Failed to add top_colors to images");
+        }
+    }
+
     info!("Migrations applied successfully");
     Ok(())
 }

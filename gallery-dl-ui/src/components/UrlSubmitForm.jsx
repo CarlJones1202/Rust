@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Send, List } from 'lucide-react';
-import { createRequest } from '../api';
+import { createRequest, guessRequestTitle } from '../api';
 import './UrlSubmitForm.css';
 
 export default function UrlSubmitForm() {
@@ -10,6 +10,25 @@ export default function UrlSubmitForm() {
   const [bulkMode, setBulkMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState(null);
+
+  useEffect(() => {
+    if (bulkMode || !url.trim() || !url.includes('vipergirls.to')) {
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const { title } = await guessRequestTitle(url.trim());
+        if (title && !name) {
+          setName(title);
+        }
+      } catch (err) {
+        console.error('Failed to guess title:', err);
+      }
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [url, bulkMode]);
 
   const showFeedback = (type, message) => {
     setFeedback({ type, message });

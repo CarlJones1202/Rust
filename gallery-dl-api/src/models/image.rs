@@ -12,7 +12,15 @@ pub struct Image {
     pub file_size_bytes: i64,
     pub width: Option<i32>,
     pub height: Option<i32>,
+    pub top_colors: Option<String>,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct ImageWithGallery {
+    #[sqlx(flatten)]
+    pub image: Image,
+    pub gallery_title: Option<String>,
 }
 
 impl Image {
@@ -26,10 +34,11 @@ impl Image {
         file_size_bytes: i64,
         width: Option<i32>,
         height: Option<i32>,
+        top_colors: Option<String>,
     ) -> Result<Self, sqlx::Error> {
         let id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT OR IGNORE INTO images (id, gallery_id, hash, extension, original_filename, file_size_bytes, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT OR IGNORE INTO images (id, gallery_id, hash, extension, original_filename, file_size_bytes, width, height, top_colors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&id)
         .bind(gallery_id)
@@ -39,6 +48,7 @@ impl Image {
         .bind(file_size_bytes)
         .bind(width)
         .bind(height)
+        .bind(top_colors)
         .execute(pool)
         .await?;
 
@@ -68,14 +78,14 @@ impl Image {
         .await
     }
 
-    /// List images with pagination.
+    /// List images with pagination, including gallery title.
     pub async fn list(
         pool: &SqlitePool,
         limit: i64,
         offset: i64,
-    ) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as::<_, Self>(
-            "SELECT * FROM images ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    ) -> Result<Vec<ImageWithGallery>, sqlx::Error> {
+        sqlx::query_as::<_, ImageWithGallery>(
+            "SELECT i.*, g.title as gallery_title FROM images i LEFT JOIN galleries g ON i.gallery_id = g.id ORDER BY i.created_at DESC LIMIT ? OFFSET ?"
         )
         .bind(limit)
         .bind(offset)

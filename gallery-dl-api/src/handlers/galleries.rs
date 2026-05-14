@@ -116,3 +116,53 @@ pub async fn update_gallery(
 
     Ok(Json(updated))
 }
+
+/// POST /api/galleries/retroactive-update — Guess and update titles for all unnamed galleries and requests.
+pub async fn retroactive_update_titles(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Update Requests first
+    let requests: Vec<(String, String)> = sqlx::query_as("SELECT id, url FROM requests WHERE title IS NULL OR title = ''")
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to fetch unnamed requests");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Database error" })))
+        })?;
+
+    let mut request_updated = 0;
+    for (id, url) in requests {
+        if let Some(guessed) = crate::services::title_guesser::guess_title(&state.db, &url).await {
+            let _ = sqlx::query("UPDATE requests SET title = ? WHERE id = ?")
+                .bind(&guessed)
+                .bind(&id)
+                .execute(&state.db)
+                .await;
+            request_updated += 1;
+        }
+    }
+
+    // Update Galleries
+    let galleries: Vec<(String, String)> = sqlx::query_as(
+        "SELECT g.id, r.url FROM galleries g JOIN requests r ON g.request_id = r.id WHERE g.title IS NULL OR g.title = ''"
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| {
+        error!(error = %e, "Failed to fetch unnamed galleries");
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Database error" })))
+    })?;
+
+    let mut gallery_updated = 0;
+    for (id, url) in galleries {
+        if let Some(guessed) = crate::services::title_guesser::guess_title(&state.db, &url).await {
+            let _ = Gallery::update_title(&state.db, &id, &guessed).await;
+            gallery_updated += 1;
+        }
+    }
+
+    Ok(Json(serde_json::json!({ 
+        "requests_updated": request_updated,
+        "galleries_updated": gallery_updated 
+    })))
+}

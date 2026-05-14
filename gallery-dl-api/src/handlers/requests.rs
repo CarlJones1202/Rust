@@ -272,3 +272,17 @@ pub async fn requeue_request(
 
     Ok((StatusCode::ACCEPTED, Json(updated_request)))
 }
+
+#[derive(Debug, Deserialize)]
+pub struct GuessTitleParams {
+    pub url: String,
+}
+
+/// GET /api/requests/guess-title — Suggest a title for a given URL.
+pub async fn guess_request_title(
+    State(state): State<AppState>,
+    Query(params): Query<GuessTitleParams>,
+) -> Json<serde_json::Value> {
+    let title = crate::services::title_guesser::guess_title(&state.db, &params.url).await;
+    Json(serde_json::json!({ "title": title }))
+}

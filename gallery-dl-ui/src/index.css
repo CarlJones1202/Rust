@@ -129,3 +129,64 @@ a:hover {
 .yarl__root {
   --yarl__color_backdrop: rgba(0, 0, 0, 0.92);
 }
+
+.yarl__slide_title {
+  font-size: 1rem;
+  margin-bottom: 4px;
+}
+
+.yarl__slide_description {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.lightbox-metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+}
+
+.metadata-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.metadata-label {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  min-width: 80px;
+}
+
+.metadata-value {
+  color: var(--text-secondary);
+}
+
+.gallery-link-info {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.color-palette {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: transform var(--transition-fast);
+}
+
+.color-swatch:hover {
+  transform: scale(1.1);
+  z-index: 1;
+}

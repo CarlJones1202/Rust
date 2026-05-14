@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::task;
 use tracing::{error, info};
+use palette_extract;
+use serde_json;
 
 /// Known image extensions.
 const IMAGE_EXTENSIONS: &[&str] = &[
@@ -32,6 +34,7 @@ pub struct ProcessedFile {
     pub file_size_bytes: i64,
     pub width: Option<i32>,
     pub height: Option<i32>,
+    pub top_colors: Option<String>,
     pub duration_seconds: Option<f64>,
     #[allow(dead_code)]
     pub final_path: PathBuf,
@@ -196,6 +199,18 @@ pub async fn process_single_file(
         MediaType::Unknown => (None, None),
     };
 
+    // Extract top colors for images
+    let top_colors = if media_type == MediaType::Image {
+        let path = dest_path.clone();
+        task::spawn_blocking(move || {
+            extract_top_colors(&path).ok()
+        })
+        .await
+        .unwrap_or(None)
+    } else {
+        None
+    };
+
     // Get duration if video
     let duration_seconds = if media_type == MediaType::Video {
         let path = dest_path.clone();
@@ -224,9 +239,29 @@ pub async fn process_single_file(
         file_size_bytes,
         width,
         height,
+        top_colors,
         duration_seconds,
         final_path: dest_path,
     }))
+}
+
+/// Extract top 5 dominant colors from an image.
+fn extract_top_colors(path: &Path) -> Result<String, String> {
+    let img = image::open(path).map_err(|e| format!("Failed to open image: {e}"))?;
+    
+    // Resize for speed - 100x100 is plenty for color extraction
+    let small_img = img.thumbnail(100, 100).to_rgb8();
+    let pixels = small_img.as_raw();
+
+    let palette = palette_extract::get_palette_rgb(pixels);
+    
+    let hex_colors: Vec<String> = palette
+        .iter()
+        .take(5) // Take top 5
+        .map(|c| format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b))
+        .collect();
+
+    serde_json::to_string(&hex_colors).map_err(|e| format!("Failed to serialize colors: {e}"))
 }
 
 

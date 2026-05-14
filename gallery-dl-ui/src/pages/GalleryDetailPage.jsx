@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Image, Edit2, Check, X, Users, Plus, User } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
+import Captions from 'yet-another-react-lightbox/plugins/captions';
 import 'yet-another-react-lightbox/styles.css';
+import 'yet-another-react-lightbox/plugins/captions.css';
 import { getGallery, imageUrl, thumbnailUrl, updateGallery } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import PersonLinkModal from '../components/PersonLinkModal';
@@ -50,7 +52,29 @@ export default function GalleryDetailPage() {
   const images = gallery.images || [];
   const slides = images.map((img) => ({
     src: imageUrl(img.hash, img.extension),
-    alt: img.original_filename || `${img.hash}.${img.extension}`,
+    title: img.original_filename || `${img.hash}.${img.extension}`,
+    description: (
+      <div className="lightbox-metadata">
+        <div className="metadata-row">
+          <span className="metadata-label">Dimensions</span>
+          <span className="metadata-value">{img.width && img.height ? `${img.width} x ${img.height}` : 'Unknown'}</span>
+        </div>
+        <div className="metadata-row">
+          <span className="metadata-label">Size</span>
+          <span className="metadata-value">{(img.file_size_bytes / 1024 / 1024).toFixed(2)} MB</span>
+        </div>
+        {img.top_colors && (
+          <div className="metadata-row">
+            <span className="metadata-label">Colors</span>
+            <div className="color-palette">
+              {JSON.parse(img.top_colors).map(c => (
+                <div key={c} className="color-swatch" style={{ backgroundColor: c }} title={c} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    ),
   }));
 
   return (
@@ -154,6 +178,9 @@ export default function GalleryDetailPage() {
         index={lightboxIndex}
         close={() => setLightboxIndex(-1)}
         slides={slides}
+        controller={{ closeOnBackdropClick: true }}
+        plugins={[Captions]}
+        captions={{ descriptionTextAlign: 'left' }}
       />
 
       {showLinkModal && (

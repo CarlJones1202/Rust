@@ -242,6 +242,7 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
                                 processed.file_size_bytes,
                                 processed.width,
                                 processed.height,
+                                processed.top_colors,
                             )
                             .await
                             {

@@ -43,6 +43,10 @@ export function requeueRequest(id) {
   });
 }
 
+export function guessRequestTitle(url) {
+  return request(`/api/requests/guess-title?url=${encodeURIComponent(url)}`);
+}
+
 // --- Galleries ---
 
 export function listGalleries(page = 1, perPage = 50) {
@@ -57,6 +61,12 @@ export function updateGallery(id, title) {
   return request(`/api/galleries/${id}`, {
     method: 'PATCH',
     body: JSON.stringify({ title }),
+  });
+}
+
+export function retroactiveUpdateTitles() {
+  return request('/api/galleries/retroactive-update', {
+    method: 'POST',
   });
 }
 
