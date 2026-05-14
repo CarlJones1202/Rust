@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Image, Edit2, Check, X } from 'lucide-react';
+import { ArrowLeft, Image, Edit2, Check, X, Users, Plus, User } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
 import { getGallery, imageUrl, thumbnailUrl, updateGallery } from '../api';
 import MediaGrid from '../components/MediaGrid';
+import PersonLinkModal from '../components/PersonLinkModal';
 import './GalleryDetailPage.css';
 
 export default function GalleryDetailPage() {
@@ -14,6 +15,7 @@ export default function GalleryDetailPage() {
   const [lightboxIndex, setLightboxIndex] = useState(-1);
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
+  const [showLinkModal, setShowLinkModal] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -92,6 +94,35 @@ export default function GalleryDetailPage() {
         {new Date(gallery.created_at + 'Z').toLocaleString()}
       </div>
 
+      <div className="gallery-people-section">
+        <div className="section-header">
+          <div className="header-title">
+            <Users size={18} />
+            <h3>People</h3>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowLinkModal(true)}>
+            <Plus size={16} />
+            Link Person
+          </button>
+        </div>
+        <div className="people-chips">
+          {gallery.persons && gallery.persons.length > 0 ? (
+            gallery.persons.map(p => (
+              <Link key={p.id} to={`/people/${p.id}`} className="person-chip">
+                {p.image_hash ? (
+                  <img src={thumbnailUrl(p.image_hash)} alt="" />
+                ) : (
+                  <div className="chip-placeholder"><User size={12} /></div>
+                )}
+                <span>{p.name}</span>
+              </Link>
+            ))
+          ) : (
+            <span className="text-muted text-sm">No people linked to this gallery</span>
+          )}
+        </div>
+      </div>
+
       {images.length === 0 ? (
         <div className="empty-state">
           <Image size={48} />
@@ -124,6 +155,17 @@ export default function GalleryDetailPage() {
         close={() => setLightboxIndex(-1)}
         slides={slides}
       />
+
+      {showLinkModal && (
+        <PersonLinkModal
+          galleryId={id}
+          onClose={() => setShowLinkModal(false)}
+          onLink={() => {
+            setShowLinkModal(false);
+            getGallery(id).then(setGallery);
+          }}
+        />
+      )}
     </div>
   );
 }

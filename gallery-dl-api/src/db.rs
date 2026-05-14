@@ -70,6 +70,14 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         }
     }
 
+    // 007: People
+    if let Err(e) = sqlx::raw_sql(include_str!("../migrations/007_people.sql")).execute(pool).await {
+        let msg = e.to_string();
+        if !msg.contains("already exists") && !msg.contains("duplicate column name") {
+            error!(error = %msg, "Failed to apply 007_people migration");
+        }
+    }
+
     info!("Migrations applied successfully");
     Ok(())
 }

@@ -1,0 +1,73 @@
+.people-page .search-bar {
+  display: flex;
+  align-items: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0 16px;
+  margin-bottom: 24px;
+  height: 48px;
+  gap: 12px;
+  transition: all var(--transition-fast);
+}
+
+.people-page .search-bar:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-glow);
+}
+
+.people-page .search-bar input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.people-page .search-bar svg {
+  color: var(--text-muted);
+}
+
+.person-card-inner {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.person-avatar-large {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.person-grid-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.person-name {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.person-disambiguation {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.header-main {
+  flex: 1;
+}
+
+.btn-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

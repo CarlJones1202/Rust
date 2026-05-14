@@ -10,12 +10,13 @@ pub struct Gallery {
     pub created_at: String,
 }
 
-/// Gallery with nested images for detail responses.
+/// Gallery with nested images and linked persons for detail responses.
 #[derive(Debug, Serialize)]
 pub struct GalleryDetail {
     #[serde(flatten)]
     pub gallery: Gallery,
     pub images: Vec<super::image::Image>,
+    pub persons: Vec<super::person::PersonSummary>,
 }
 
 impl Gallery {

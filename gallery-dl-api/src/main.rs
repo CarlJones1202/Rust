@@ -6,7 +6,7 @@ mod pagination;
 mod queue;
 mod services;
 
-use axum::{routing::get, routing::post, routing::patch, Router};
+use axum::{routing::get, routing::post, routing::patch, routing::delete, Router};
 use axum::http::header;
 use queue::worker::JobSender;
 use sqlx::SqlitePool;
@@ -21,6 +21,7 @@ pub struct AppState {
     pub db: SqlitePool,
     pub job_sender: JobSender,
     pub config: config::Config,
+    pub http_client: reqwest::Client,
 }
 
 #[tokio::main]
@@ -46,6 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::fs::create_dir_all(storage_dir.join("videos")).await?;
     tokio::fs::create_dir_all(storage_dir.join("thumbnails")).await?;
     tokio::fs::create_dir_all(storage_dir.join("temp")).await?;
+    tokio::fs::create_dir_all(storage_dir.join("persons")).await?;
     info!(dir = %config.storage_dir, "Storage directories ready");
 
     // Initialize database
@@ -58,11 +60,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Recover unfinished jobs
     queue::worker::recover_pending_jobs(&pool, job_sender.clone()).await;
 
+    // Build shared HTTP client for external API calls
+    let http_client = reqwest::Client::new();
+
     // Build application state
     let state = AppState {
         db: pool,
         job_sender,
         config: config.clone(),
+        http_client,
     };
 
     // Build router
@@ -75,10 +81,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/galleries", get(handlers::galleries::list_galleries))
         .route("/api/galleries/{id}", get(handlers::galleries::get_gallery))
         .route("/api/galleries/{id}", patch(handlers::galleries::update_gallery))
+        .route("/api/galleries/{id}/persons", get(handlers::persons::get_gallery_persons))
         .route("/api/images", get(handlers::images::list_images))
         .route("/api/videos", get(handlers::videos::list_videos))
         .route("/api/videos/{id}/progress", get(handlers::videos::get_video_progress))
         .route("/api/videos/{id}/progress", post(handlers::videos::save_video_progress))
+        // Person routes
+        .route("/api/persons", post(handlers::persons::create_person))
+        .route("/api/persons", get(handlers::persons::list_persons))
+        .route("/api/persons/{id}", get(handlers::persons::get_person))
+        .route("/api/persons/{id}", patch(handlers::persons::update_person))
+        .route("/api/persons/{id}", delete(handlers::persons::delete_person))
+        .route("/api/persons/{id}/images", post(handlers::persons::upload_person_image))
+        .route("/api/persons/{id}/images/{image_id}", delete(handlers::persons::delete_person_image))
+        .route("/api/persons/{id}/images/{image_id}/primary", patch(handlers::persons::set_primary_image))
+        .route("/api/persons/{id}/galleries/{gallery_id}", post(handlers::persons::link_gallery))
+        .route("/api/persons/{id}/galleries/{gallery_id}", delete(handlers::persons::unlink_gallery))
+        .route("/api/persons/{id}/galleries", get(handlers::persons::get_person_galleries))
+        .route("/api/persons/{id}/stashdb-import", post(handlers::persons::import_from_stashdb))
+        .route("/api/stashdb/search", get(handlers::persons::search_stashdb))
         // Static file serving for media
         .nest_service(
             "/media/images",
@@ -95,6 +116,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest_service(
             "/media/trickplay",
             ServeDir::new(storage_dir.join("trickplay")),
+        )
+        .nest_service(
+            "/media/persons",
+            ServeDir::new(storage_dir.join("persons")),
         )
         .with_state(state)
         .layer(

@@ -10,6 +10,8 @@ pub struct Config {
     pub max_concurrent_downloads: usize,
     pub max_concurrent_video_downloads: usize,
     pub gallery_dl_bin: String,
+    pub cookies_from_browser: Option<String>,
+    pub stashdb_api_key: Option<String>,
 }
 
 impl Config {
@@ -34,6 +36,8 @@ impl Config {
                 .unwrap_or(2),
             gallery_dl_bin: env::var("GALLERY_DL_BIN")
                 .unwrap_or_else(|_| "gallery-dl".to_string()),
+            cookies_from_browser: env::var("COOKIES_FROM_BROWSER").ok(),
+            stashdb_api_key: env::var("STASHDB_API_KEY").ok().filter(|s| !s.is_empty() && s != "your_api_key_here"),
         }
     }
 }

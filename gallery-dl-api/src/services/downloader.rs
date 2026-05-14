@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 /// Run gallery-dl for a given URL, downloading files to `temp_dir`.
 /// Run gallery-dl for a given URL, downloading files to `temp_dir`.
@@ -11,6 +11,7 @@ pub async fn run_gallery_dl(
     gallery_dl_bin: &str,
     url: &str,
     temp_dir: &Path,
+    cookies_from_browser: Option<&str>,
     tx: mpsc::UnboundedSender<PathBuf>,
 ) -> Result<(), String> {
     // Ensure temp directory exists
@@ -52,6 +53,16 @@ pub async fn run_gallery_dl(
         .arg(&abs_temp_str)
         .arg("--no-mtime");
 
+    cmd.arg("-o")
+        .arg("ytdl-args=[\"--js-runtimes\", \"node\", \"--remote-components\", \"ejs:github\"]");
+
+    // Use cookies.txt if it exists, otherwise fall back to browser extraction if configured
+    if std::path::Path::new("cookies.txt").exists() {
+        cmd.arg("--cookies").arg("cookies.txt");
+    } else if let Some(browser) = cookies_from_browser {
+        cmd.arg("--cookies-from-browser").arg(browser);
+    }
+
     // Add download archive to support efficient resuming
     let archive_path = abs_temp_dir.join("archive.txt");
     let archive_str = archive_path.to_string_lossy().to_string();
@@ -82,7 +93,7 @@ pub async fn run_gallery_dl(
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            debug!(stderr = %line, "gallery-dl stderr");
+            warn!(stderr = %line, "gallery-dl stderr");
         }
     });
 

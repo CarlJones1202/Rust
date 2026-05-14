@@ -7,6 +7,7 @@ use tracing::error;
 
 use crate::models::gallery::{Gallery, GalleryDetail};
 use crate::models::image::Image;
+use crate::models::person::get_persons_for_gallery;
 use crate::pagination::{PaginatedResponse, PaginationMeta, PaginationParams};
 use crate::AppState;
 
@@ -64,7 +65,11 @@ pub async fn get_gallery(
         .await
         .unwrap_or_default();
 
-    Ok(Json(GalleryDetail { gallery, images }))
+    let persons = get_persons_for_gallery(&state.db, &id)
+        .await
+        .unwrap_or_default();
+
+    Ok(Json(GalleryDetail { gallery, images, persons }))
 }
 
 #[derive(Debug, serde::Deserialize)]

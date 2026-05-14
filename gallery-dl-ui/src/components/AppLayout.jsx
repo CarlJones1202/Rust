@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { Download, LayoutGrid, Image, Video, HardDrive } from 'lucide-react';
+import { Download, LayoutGrid, Image, Video, HardDrive, Users } from 'lucide-react';
 import UrlSubmitForm from './UrlSubmitForm';
 import './AppLayout.css';
 
@@ -19,6 +19,10 @@ export default function AppLayout() {
           <NavLink to="/galleries">
             <LayoutGrid size={18} />
             Galleries
+          </NavLink>
+          <NavLink to="/people">
+            <Users size={18} />
+            People
           </NavLink>
           <NavLink to="/images">
             <Image size={18} />

@@ -3,3 +3,4 @@ storage/**
 gallery_dl.db
 gallery_dl.db-shm
 gallery_dl.db-wal
+gallery_dl/**

@@ -185,10 +185,18 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
     let gallery_dl_bin = config.gallery_dl_bin.clone();
     let url = job.url.clone();
     let temp_dir_clone = temp_dir.clone();
+    let cookies_from_browser = config.cookies_from_browser.clone();
 
     // Spawn gallery-dl in the background
     let dl_task = tokio::spawn(async move {
-        downloader::run_gallery_dl(&gallery_dl_bin, &url, &temp_dir_clone, tx).await
+        downloader::run_gallery_dl(
+            &gallery_dl_bin,
+            &url,
+            &temp_dir_clone,
+            cookies_from_browser.as_deref(),
+            tx,
+        )
+        .await
     });
 
     let storage_dir = PathBuf::from(&config.storage_dir);
