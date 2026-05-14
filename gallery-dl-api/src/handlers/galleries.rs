@@ -117,12 +117,26 @@ pub async fn update_gallery(
     Ok(Json(updated))
 }
 
-/// POST /api/galleries/retroactive-update — Guess and update titles for all unnamed galleries and requests.
+#[derive(Debug, serde::Deserialize)]
+pub struct RetroactiveUpdateParams {
+    pub force: Option<bool>,
+}
+
+/// POST /api/galleries/retroactive-update — Guess and update titles for galleries and requests.
 pub async fn retroactive_update_titles(
     State(state): State<AppState>,
+    Query(params): Query<RetroactiveUpdateParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let force = params.force.unwrap_or(false);
+
     // Update Requests first
-    let requests: Vec<(String, String)> = sqlx::query_as("SELECT id, url FROM requests WHERE title IS NULL OR title = ''")
+    let requests_query = if force {
+        "SELECT id, url FROM requests"
+    } else {
+        "SELECT id, url FROM requests WHERE title IS NULL OR title = ''"
+    };
+
+    let requests: Vec<(String, String)> = sqlx::query_as(requests_query)
         .fetch_all(&state.db)
         .await
         .map_err(|e| {
@@ -143,9 +157,13 @@ pub async fn retroactive_update_titles(
     }
 
     // Update Galleries
-    let galleries: Vec<(String, String)> = sqlx::query_as(
+    let galleries_query = if force {
+        "SELECT g.id, r.url FROM galleries g JOIN requests r ON g.request_id = r.id"
+    } else {
         "SELECT g.id, r.url FROM galleries g JOIN requests r ON g.request_id = r.id WHERE g.title IS NULL OR g.title = ''"
-    )
+    };
+
+    let galleries: Vec<(String, String)> = sqlx::query_as(galleries_query)
     .fetch_all(&state.db)
     .await
     .map_err(|e| {

@@ -19,6 +19,7 @@ pub struct Image {
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct ImageWithGallery {
     #[sqlx(flatten)]
+    #[serde(flatten)]
     pub image: Image,
     pub gallery_title: Option<String>,
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Image, Edit2, Check, X, Users, Plus, User } from 'lucide-react';
+import { ArrowLeft, Image, Edit2, Check, X, Users, Plus, User, Info } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import Captions from 'yet-another-react-lightbox/plugins/captions';
 import 'yet-another-react-lightbox/styles.css';
@@ -18,6 +18,7 @@ export default function GalleryDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [showLinkModal, setShowLinkModal] = useState(false);
+  const [showMetadata, setShowMetadata] = useState(true);
 
   useEffect(() => {
     setLoading(true);
@@ -73,8 +74,14 @@ export default function GalleryDetailPage() {
             </div>
           </div>
         )}
+        <div className="gallery-link-info">
+          <div className="metadata-row">
+            <span className="metadata-label">Gallery</span>
+            <span className="metadata-value">{gallery.title || `Gallery ${gallery.id.slice(0, 8)}`}</span>
+          </div>
+        </div>
       </div>
-    ),
+    ) : null,
   }));
 
   return (
@@ -181,6 +188,25 @@ export default function GalleryDetailPage() {
         controller={{ closeOnBackdropClick: true }}
         plugins={[Captions]}
         captions={{ descriptionTextAlign: 'left' }}
+        render={{
+          button: ({ type, label, onClick }) => {
+            if (type === "info") {
+              return (
+                <button
+                  type="button"
+                  className="yarl__button"
+                  title="Toggle Metadata"
+                  onClick={() => setShowMetadata(!showMetadata)}
+                >
+                  <Info size={24} style={{ opacity: showMetadata ? 1 : 0.5 }} />
+                </button>
+              );
+            }
+          }
+        }}
+        toolbar={{
+          buttons: ["info", "close"]
+        }}
       />
 
       {showLinkModal && (

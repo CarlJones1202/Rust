@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Image } from 'lucide-react';
+import { Image, Info } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import Captions from 'yet-another-react-lightbox/plugins/captions';
 import 'yet-another-react-lightbox/styles.css';
@@ -15,6 +15,7 @@ export default function ImagesPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState(-1);
+  const [showMetadata, setShowMetadata] = useState(true);
 
   useEffect(() => {
     setLoading(true);
@@ -32,7 +33,7 @@ export default function ImagesPage() {
   const slides = images.map((img) => ({
     src: imageUrl(img.hash, img.extension),
     title: img.original_filename || `${img.hash}.${img.extension}`,
-    description: (
+    description: showMetadata ? (
       <div className="lightbox-metadata">
         <div className="metadata-row">
           <span className="metadata-label">Dimensions</span>
@@ -63,7 +64,7 @@ export default function ImagesPage() {
           </div>
         )}
       </div>
-    ),
+    ) : null,
   }));
 
   return (
@@ -118,6 +119,25 @@ export default function ImagesPage() {
         controller={{ closeOnBackdropClick: true }}
         plugins={[Captions]}
         captions={{ descriptionTextAlign: 'left' }}
+        render={{
+          button: ({ type, label, onClick }) => {
+            if (type === "info") {
+              return (
+                <button
+                  type="button"
+                  className="yarl__button"
+                  title="Toggle Metadata"
+                  onClick={() => setShowMetadata(!showMetadata)}
+                >
+                  <Info size={24} style={{ opacity: showMetadata ? 1 : 0.5 }} />
+                </button>
+              );
+            }
+          }
+        }}
+        toolbar={{
+          buttons: ["info", "close"]
+        }}
       />
     </div>
   );
