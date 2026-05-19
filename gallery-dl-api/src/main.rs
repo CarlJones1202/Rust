@@ -4,6 +4,7 @@ mod handlers;
 mod models;
 mod pagination;
 mod queue;
+mod reset_checker;
 mod services;
 
 use axum::{routing::get, routing::post, routing::patch, routing::delete, Router};
@@ -52,6 +53,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize database
     let pool = db::init_pool(&config.database_url).await?;
+
+    // Check for CLI flags that run before the worker starts
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a.to_lowercase() == "reset") {
+        info!("Reset flag detected: verifying all completed requests and person images");
+        reset_checker::run_reset_check(&pool, &config).await;
+    }
+    if args.iter().any(|a| a.to_lowercase() == "requeue-failed" || a.to_lowercase() == "requeue-all") {
+        reset_checker::run_requeue_failed(&pool).await;
+    }
 
     // Start download queue worker
     let job_sender = queue::worker::spawn_worker(pool.clone(), config.clone());

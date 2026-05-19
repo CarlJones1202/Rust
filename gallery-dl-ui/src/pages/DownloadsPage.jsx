@@ -66,7 +66,7 @@ export default function DownloadsPage() {
   const handleRequeue = async (id) => {
     try {
       await requeueRequest(id);
-      fetchData(page);
+      fetchData(page, debouncedSearch, sort, status);
     } catch (err) {
       alert(`Failed to requeue: ${err.message}`);
     }

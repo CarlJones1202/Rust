@@ -3,6 +3,7 @@ use crate::models::gallery::Gallery;
 use crate::models::image::Image;
 use crate::models::request::DownloadRequest;
 use crate::models::video::Video;
+use crate::services::auto_link;
 use crate::services::downloader;
 use crate::services::file_processor::{self, MediaType};
 use sqlx::SqlitePool;
@@ -312,6 +313,10 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
         let _ = DownloadRequest::update_status(pool, &job.request_id, "failed", Some(e)).await;
     } else {
         let _ = DownloadRequest::update_status(pool, &job.request_id, "completed", None).await;
+        // Auto-link gallery to person if person exists
+        if let Some(ref gid) = gallery_id {
+            let _ = auto_link::auto_link_gallery(pool, &job.url, gid).await;
+        }
         info!(
             request_id = %job.request_id,
             images = image_count,

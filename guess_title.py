@@ -15,7 +15,7 @@ Strategy:
   3. Strip leading dates (YYYY-MM-DD or DD-MM-YYYY patterns at start)
   4. Remove metadata tokens (counts, resolutions, dates, file info)
   5. Strip trailing numeric remnants
-  6. The remaining tokens form "ModelName - GalleryTitle"
+  6. The remaining tokens form the gallery title
 """
 
 import re
@@ -27,7 +27,7 @@ from urllib.parse import unquote
 def guess_title(url: str) -> str | None:
     """Given a vipergirls.to URL, guess the gallery title.
     
-    Returns a string like "Julietta - My Flower" or None if not a vipergirls URL.
+    Returns a guessed gallery title or None if not a vipergirls URL.
     """
     # Only handle vipergirls URLs
     if "vipergirls.to/threads/" not in url:
@@ -61,7 +61,7 @@ def guess_title(url: str) -> str | None:
     # --- Phase 4: Strip trailing numeric remnants ---
     cleaned = _strip_trailing_numbers(cleaned)
     
-    # --- Phase 5: Identify model name vs gallery title ---
+    # --- Phase 5: Format title ---
     return _format_title(cleaned)
 
 
@@ -292,7 +292,6 @@ def _strip_trailing_numbers(parts: list[str]) -> list[str]:
     
     return parts
 
-
 # Known model names
 _KNOWN_MODELS = {
     'Julietta',
@@ -366,16 +365,14 @@ _SORTED_MODELS = sorted(_KNOWN_MODELS, key=len, reverse=True)
 def _find_model_name(parts: list[str]) -> tuple[str | None, int]:
     """Try to find a known model name at the start of parts."""
     joined = ' '.join(parts)
-    
-    # Exact match first
+
     for model in _SORTED_MODELS:
         if joined.startswith(model):
             model_parts = model.split(' ')
             if len(model_parts) <= len(parts):
                 if all(parts[i] == model_parts[i] for i in range(len(model_parts))):
                     return model, len(model_parts)
-    
-    # Case-insensitive fallback (for lowercase slugs like "yarina-a-adesi")
+
     joined_lower = joined.lower()
     for model in _SORTED_MODELS:
         if joined_lower.startswith(model.lower()):
@@ -383,47 +380,17 @@ def _find_model_name(parts: list[str]) -> tuple[str | None, int]:
             if len(model_parts) <= len(parts):
                 if all(parts[i].lower() == model_parts[i].lower() for i in range(len(model_parts))):
                     return model, len(model_parts)
-    
+
     return None, 0
 
 
-def _is_model_name_word(word: str) -> bool:
-    """Check if a word looks like it could be part of a model name."""
-    clean = word.strip('()')
-    return bool(clean) and clean[0].isupper() and clean.isalpha()
-
-
 def _format_title(parts: list[str]) -> str:
-    """Format cleaned parts into "Model Name - Gallery Title"."""
     if not parts:
         return "Unknown"
-    
     model_name, consumed = _find_model_name(parts)
-    
     if model_name and consumed < len(parts):
-        title_parts = parts[consumed:]
-        title = ' '.join(title_parts)
-        return f"{model_name} - {title}"
-    elif model_name:
-        return model_name
-    
-    # Fallback: heuristic — first 1-3 capitalized words are the model name
-    model_parts = []
-    title_start = 0
-    
-    for i, part in enumerate(parts):
-        if _is_model_name_word(part) and i < 4:
-            model_parts.append(part)
-            title_start = i + 1
-        else:
-            break
-    
-    if model_parts and title_start < len(parts):
-        model = ' '.join(model_parts)
-        title = ' '.join(parts[title_start:])
-        return f"{model} - {title}"
-    else:
-        return ' '.join(parts)
+        return ' '.join(parts[consumed:])
+    return ' '.join(parts)
 
 
 def process_file(filepath: str):

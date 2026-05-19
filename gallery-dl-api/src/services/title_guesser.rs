@@ -62,7 +62,7 @@ pub async fn guess_title(pool: &SqlitePool, url: &str) -> Option<String> {
     // Phase 4: Strip trailing numeric remnants
     cleaned = strip_trailing_numbers(cleaned);
 
-    // Phase 5: Format title (incorporating model names from DB)
+    // Phase 5: Format title
     Some(format_title(pool, cleaned).await)
 }
 
@@ -273,12 +273,11 @@ fn strip_trailing_numbers(mut parts: Vec<String>) -> Vec<String> {
 }
 
 async fn fetch_known_models(pool: &SqlitePool) -> Vec<String> {
-    // Fetch all names and aliases
     let names: Vec<(String,)> = sqlx::query_as("SELECT name FROM persons")
         .fetch_all(pool)
         .await
         .unwrap_or_default();
-    
+
     let aliases: Vec<(String,)> = sqlx::query_as("SELECT alias FROM person_aliases")
         .fetch_all(pool)
         .await
@@ -286,7 +285,7 @@ async fn fetch_known_models(pool: &SqlitePool) -> Vec<String> {
 
     let mut all: Vec<String> = names.into_iter().map(|(n,)| n)
         .chain(aliases.into_iter().map(|(a,)| a))
-        .filter(|s| s.len() > 1 && !s.chars().all(|c| c.is_digit(10))) // Exclude single letter and purely numeric
+        .filter(|s| s.len() > 1 && !s.chars().all(|c| c.is_digit(10)))
         .collect();
 
     all.sort_by_key(|s| std::cmp::Reverse(s.len()));
@@ -298,7 +297,6 @@ async fn find_model_name(pool: &SqlitePool, parts: &[String]) -> (Option<String>
     let models = fetch_known_models(pool).await;
     let joined = parts.join(" ");
 
-    // Exact match first
     for model in &models {
         if joined.starts_with(model) {
             let model_parts: Vec<&str> = model.split(' ').collect();
@@ -310,7 +308,6 @@ async fn find_model_name(pool: &SqlitePool, parts: &[String]) -> (Option<String>
         }
     }
 
-    // Case-insensitive fallback
     let joined_lower = joined.to_lowercase();
     for model in &models {
         if joined_lower.starts_with(&model.to_lowercase()) {
@@ -324,15 +321,6 @@ async fn find_model_name(pool: &SqlitePool, parts: &[String]) -> (Option<String>
     }
 
     (None, 0)
-}
-
-fn is_model_name_word(word: &str) -> bool {
-    let clean = word.trim_matches(|c| c == '(' || c == ')');
-    if clean.is_empty() {
-        return false;
-    }
-    let first_char = clean.chars().next().unwrap();
-    first_char.is_uppercase() && clean.chars().all(|c| c.is_alphabetic())
 }
 
 fn title_case(s: &str) -> String {
@@ -353,40 +341,105 @@ async fn format_title(pool: &SqlitePool, parts: Vec<String>) -> String {
 
     let (model_name, consumed) = find_model_name(pool, &parts).await;
 
-    if let Some(model) = model_name {
-        if consumed < parts.len() {
-            let title_parts: Vec<String> = parts[consumed..].iter().map(|s| title_case(s)).collect();
-            let title = title_parts.join(" ");
-            return format!("{} - {}", model, title);
-        } else {
-            return model;
+    if model_name.is_some() && consumed < parts.len() {
+        let title_parts: Vec<String> = parts[consumed..].iter().map(|s| title_case(s)).collect();
+        return title_parts.join(" ");
+    }
+
+    parts.iter().map(|s| title_case(s)).collect::<Vec<String>>().join(" ")
+}
+
+/// Extract a potential person name from a vipergirls URL slug.
+/// Returns candidate tokens (1-3) that look like a person name, without DB lookup.
+/// The caller should verify the name exists in the persons table.
+pub fn guess_person_name_from_url(url: &str) -> Option<String> {
+    if !url.contains("vipergirls.to/threads/") {
+        return None;
+    }
+
+    let re_slug = get_regex(&RE_SLUG, r"/threads/\d+-(.*?)(?:\?|#|&|$)");
+    let slug = re_slug.captures(url)?.get(1)?.as_str();
+
+    let slug = percent_decode_str(slug).decode_utf8_lossy().into_owned();
+
+    let slug = preclean_slug(&slug);
+
+    let mut parts: Vec<String> = slug.split('-').map(|s| s.to_string()).collect();
+
+    parts = strip_leading_date(parts);
+    parts = strip_site_prefix(parts);
+
+    let name_tokens: Vec<&String> = parts.iter()
+        .filter(|t| is_name_like_token(t))
+        .collect();
+
+    if name_tokens.is_empty() {
+        return None;
+    }
+
+    for &len in &[2usize, 1, 3] {
+        if name_tokens.len() < len {
+            continue;
+        }
+        let candidate = name_tokens[..len]
+            .iter()
+            .map(|s| title_case(s.trim_matches(|c| c == '(' || c == ')')))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        if !candidate.is_empty() {
+            return Some(candidate);
         }
     }
 
-    // Fallback heuristic: first 1-3 words are model name
-    let mut model_parts = Vec::new();
-    let mut title_start = 0;
+    None
+}
 
-    for (i, part) in parts.iter().enumerate() {
-        // If it was already capitalized, it's likely a name
-        // Or if it's the first few words of a lowercase slug
-        let looks_like_name = is_model_name_word(part) || 
-                             (i < 2 && part.len() >= 3 && part.chars().all(|c| c.is_alphabetic()));
-        
-        if looks_like_name && i < 3 {
-            model_parts.push(title_case(part));
-            title_start = i + 1;
-        } else {
-            break;
-        }
+/// Lighter noise filter for person name extraction.
+/// Skips numbers, image metadata patterns, and obvious noise words,
+/// but keeps month names and other words that could be part of a person name.
+fn is_name_like_token(token: &str) -> bool {
+    let clean = token.trim_matches(|c| c == '(' || c == ')');
+    if clean.is_empty() {
+        return false;
     }
 
-    if !model_parts.is_empty() && title_start < parts.len() {
-        let model = model_parts.join(" ");
-        let title_parts: Vec<String> = parts[title_start..].iter().map(|s| title_case(s)).collect();
-        let title = title_parts.join(" ");
-        format!("{} - {}", model, title)
-    } else {
-        parts.iter().map(|s| title_case(s)).collect::<Vec<String>>().join(" ")
+    if clean.parse::<i32>().is_ok() {
+        return false;
     }
+
+    if get_regex(&RE_X_COUNT, r"(?i)^x\d+$|^\d+x$").is_match(clean) {
+        return false;
+    }
+
+    if get_regex(&RE_PX, r"(?i)^\d+px$").is_match(clean) {
+        return false;
+    }
+
+    if get_regex(&RE_DIMENSIONS, r"(?i)^\d+x\d+(px)?$").is_match(clean) {
+        return false;
+    }
+
+    if get_regex(&RE_CARD_ID, r"^[ef]\d+$").is_match(clean) {
+        return false;
+    }
+
+    if get_regex(&RE_P_RES, r"^\d+p$").is_match(clean) {
+        return false;
+    }
+
+    if matches!(clean, "X" | "x" | "*" | "–" | "MP") {
+        return false;
+    }
+
+    let noise_words = [
+        "pictures", "photos", "pics", "images", "pix",
+        "jpg", "mb", "hi", "res", "pre", "release",
+        "upcoming", "full", "set", "card", "amp",
+    ];
+    if noise_words.contains(&clean.to_lowercase().as_str()) {
+        return false;
+    }
+
+    true
 }

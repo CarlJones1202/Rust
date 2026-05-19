@@ -35,6 +35,12 @@ pub async fn run_gallery_dl(
         || lower_url.contains("dailymotion.com")
         || lower_url.contains("tiktok.com");
 
+    // Delete stale download archive so retries don't get silently skipped
+    if use_yt_dlp {
+        let stale = abs_temp_dir.join("archive.txt");
+        let _ = tokio::fs::remove_file(&stale).await;
+    }
+
     let mut cmd = if use_yt_dlp {
         info!(url = %url, "Using yt-dlp directly for video site");
         let mut c = Command::new("yt-dlp");
@@ -54,8 +60,8 @@ pub async fn run_gallery_dl(
         let archive_path = abs_temp_dir.join("archive.txt");
         c.arg("--download-archive").arg(archive_path);
 
-        // Printing filename for our processor (always works, even if skipped/in archive)
-        c.arg("--print").arg("filename");
+        // Printing filepath for our processor (video:filepath ensures only actual filepaths are printed)
+        c.arg("--print").arg("video:filepath");
         c.arg("--no-progress");
         
         c

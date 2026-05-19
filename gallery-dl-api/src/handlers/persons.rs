@@ -14,6 +14,7 @@ use crate::models::person::{
 };
 use crate::models::gallery::Gallery;
 use crate::pagination::{PaginatedResponse, PaginationMeta, PaginationParams};
+use crate::services::auto_link;
 use crate::services::stashdb;
 use crate::AppState;
 
@@ -60,6 +61,14 @@ pub async fn create_person(
     let aliases = PersonAlias::get_for_person(&state.db, &person.id)
         .await
         .unwrap_or_default();
+
+    // Retro-actively link to any existing galleries whose URL matches this person
+    let pool = state.db.clone();
+    let person_id = person.id.clone();
+    let person_name = body.name.clone();
+    tokio::spawn(async move {
+        let _ = auto_link::retroactively_link_person(&pool, &person_id, &person_name).await;
+    });
 
     Ok(Json(PersonDetail {
         person,

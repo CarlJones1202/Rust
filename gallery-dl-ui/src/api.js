@@ -13,6 +13,7 @@ async function request(path, options = {}) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Request failed: ${res.status}`);
   }
+  if (res.status === 204) return null;
   return res.json();
 }
 
