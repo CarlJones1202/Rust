@@ -111,6 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/persons/{id}/galleries/{gallery_id}", post(handlers::persons::link_gallery))
         .route("/api/persons/{id}/galleries/{gallery_id}", delete(handlers::persons::unlink_gallery))
         .route("/api/persons/{id}/galleries", get(handlers::persons::get_person_galleries))
+                .route("/api/persons/{id}/relink", post(handlers::persons::relink_person))
         .route("/api/persons/{id}/stashdb-import", post(handlers::persons::import_from_stashdb))
         .route("/api/stashdb/search", get(handlers::persons::search_stashdb))
         // Static file serving for media

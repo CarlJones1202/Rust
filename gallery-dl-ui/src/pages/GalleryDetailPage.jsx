@@ -18,7 +18,7 @@ export default function GalleryDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [showLinkModal, setShowLinkModal] = useState(false);
-  const [showMetadata, setShowMetadata] = useState(true);
+  const [showMetadata, setShowMetadata] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -188,24 +188,19 @@ export default function GalleryDetailPage() {
         controller={{ closeOnBackdropClick: true }}
         plugins={[Captions]}
         captions={{ descriptionTextAlign: 'left' }}
-        render={{
-          button: ({ type, label, onClick }) => {
-            if (type === "info") {
-              return (
-                <button
-                  type="button"
-                  className="yarl__button"
-                  title="Toggle Metadata"
-                  onClick={() => setShowMetadata(!showMetadata)}
-                >
-                  <Info size={24} style={{ opacity: showMetadata ? 1 : 0.5 }} />
-                </button>
-              );
-            }
-          }
-        }}
         toolbar={{
-          buttons: ["info", "close"]
+          buttons: [
+            <button
+              key="metadata-toggle"
+              type="button"
+              className="yarl__button"
+              title="Toggle Metadata"
+              onClick={() => setShowMetadata(!showMetadata)}
+            >
+              <Info size={24} style={{ opacity: showMetadata ? 1 : 0.5 }} />
+            </button>,
+            "close",
+          ]
         }}
       />
 

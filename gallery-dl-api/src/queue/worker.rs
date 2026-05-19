@@ -187,6 +187,7 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
     let url = job.url.clone();
     let temp_dir_clone = temp_dir.clone();
     let cookies_from_browser = config.cookies_from_browser.clone();
+    let download_delay = config.download_delay;
 
     // Spawn gallery-dl in the background
     let dl_task = tokio::spawn(async move {
@@ -194,6 +195,7 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
             &gallery_dl_bin,
             &url,
             &temp_dir_clone,
+            download_delay,
             cookies_from_browser.as_deref(),
             tx,
         )

@@ -8,7 +8,8 @@ import {
 import { 
   getPerson, updatePerson, personImageUrl, thumbnailUrl,
   uploadPersonImage, deletePersonImage, setPersonPrimaryImage,
-  deletePerson, listPersonGalleries, unlinkGalleryPerson, importFromStashDB
+  deletePerson, listPersonGalleries, unlinkGalleryPerson, importFromStashDB,
+  relinkPerson
 } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import StashDBSearchModal from '../components/StashDBSearchModal';
@@ -113,6 +114,17 @@ export default function PersonDetailPage() {
     }
   };
 
+  const handleRelink = async () => {
+    if (!window.confirm('Scan completed downloads and auto-link galleries matching this person\'s name or aliases?')) return;
+    try {
+      const result = await relinkPerson(id);
+      alert(`Linked ${result.linked} gallery(ies) to this person`);
+      loadData();
+    } catch (err) {
+      alert(`Failed to relink: ${err.message}`);
+    }
+  };
+
   if (loading && !data) return <div className="empty-state"><p>Loading...</p></div>;
   if (!data) return <div className="empty-state"><h3>Person not found</h3></div>;
 
@@ -137,7 +149,11 @@ export default function PersonDetailPage() {
           Back to People
         </Link>
         <div className="nav-actions">
-           <button className="btn btn-secondary" onClick={() => setShowStashModal(true)}>
+            <button className="btn btn-secondary" onClick={handleRelink}>
+            <LinkIcon size={16} />
+            Relink Galleries
+          </button>
+          <button className="btn btn-secondary" onClick={() => setShowStashModal(true)}>
             <ExternalLink size={16} />
             StashDB Import
           </button>
@@ -269,6 +285,11 @@ export default function PersonDetailPage() {
                   items={galleries}
                   renderItem={(g) => (
                     <div className="gallery-thumb-card">
+                       {g.cover_hash ? (
+                         <img src={thumbnailUrl(g.cover_hash)} alt={g.title || 'Gallery'} className="gallery-thumb-img" loading="lazy" />
+                       ) : (
+                         <div className="gallery-thumb-placeholder"><ImageIcon size={18} /></div>
+                       )}
                        <div className="gallery-thumb-name">{g.title || g.id.slice(0, 8)}</div>
                        <button className="unlink-btn" onClick={(e) => { e.stopPropagation(); handleUnlinkGallery(g.id); }}>
                           <X size={14} />

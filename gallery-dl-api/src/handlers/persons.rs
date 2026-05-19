@@ -8,11 +8,11 @@ use std::path::PathBuf;
 use tracing::error;
 
 use crate::models::person::{
-    gallery_count_for_person, get_gallery_ids_for_person, get_persons_for_gallery,
+    gallery_count_for_person, get_persons_for_gallery,
     link_gallery_person, unlink_gallery_person, Person, PersonAlias, PersonDetail,
     PersonImage, PersonInput,
 };
-use crate::models::gallery::Gallery;
+use crate::models::gallery::{Gallery, GalleryWithCover};
 use crate::pagination::{PaginatedResponse, PaginationMeta, PaginationParams};
 use crate::services::auto_link;
 use crate::services::stashdb;
@@ -336,21 +336,71 @@ pub async fn unlink_gallery(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// POST /api/persons/:id/relink — Scan all completed requests and auto-link any
+/// galleries whose URL person name matches this person or their aliases.
+pub async fn relink_person(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let person = Person::get_by_id(&state.db, &id)
+        .await
+        .map_err(|e| internal_error("DB error", e))?
+        .ok_or_else(|| not_found("Person"))?;
+
+    let aliases = PersonAlias::get_for_person(&state.db, &id)
+        .await
+        .unwrap_or_default();
+
+    let mut name_variants: Vec<String> = vec![person.name.clone()];
+    name_variants.extend(aliases);
+
+    let requests: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, url FROM requests WHERE status = 'completed'"
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| internal_error("Failed to fetch requests", e))?;
+
+    let mut linked = 0u64;
+
+    for (req_id, url) in &requests {
+        let Some(candidate_name) = crate::services::title_guesser::guess_person_name_from_url(url)
+        else {
+            continue;
+        };
+
+        if !name_variants.iter().any(|v| v.eq_ignore_ascii_case(&candidate_name)) {
+            continue;
+        }
+
+        let galleries: Vec<(String,)> = sqlx::query_as(
+            "SELECT id FROM galleries WHERE request_id = ?"
+        )
+        .bind(req_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| internal_error("Failed to fetch galleries", e))?;
+
+        for (gallery_id,) in &galleries {
+            if let Err(e) = link_gallery_person(&state.db, gallery_id, &id).await {
+                error!(error = %e, "Failed to link gallery");
+            } else {
+                linked += 1;
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({ "linked": linked })))
+}
+
 /// GET /api/persons/:id/galleries — Get galleries linked to a person.
 pub async fn get_person_galleries(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Json<Vec<Gallery>>, ApiError> {
-    let gallery_ids = get_gallery_ids_for_person(&state.db, &id)
+) -> Result<Json<Vec<GalleryWithCover>>, ApiError> {
+    let galleries = Gallery::get_by_person_id(&state.db, &id)
         .await
         .map_err(|e| internal_error("Failed to get galleries", e))?;
-
-    let mut galleries = Vec::new();
-    for gid in gallery_ids {
-        if let Ok(Some(g)) = Gallery::get_by_id(&state.db, &gid).await {
-            galleries.push(g);
-        }
-    }
 
     Ok(Json(galleries))
 }

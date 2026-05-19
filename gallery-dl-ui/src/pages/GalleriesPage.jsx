@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { LayoutGrid, Image } from 'lucide-react';
 import { listGalleries, getGallery, imageUrl, thumbnailUrl } from '../api';
 import MediaGrid from '../components/MediaGrid';
@@ -8,10 +8,18 @@ import './GalleriesPage.css';
 
 export default function GalleriesPage() {
   const [data, setData] = useState(null);
-  const [page, setPage] = useState(1);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = parseInt(searchParams.get('page') || '1', 10);
   const [loading, setLoading] = useState(true);
   const [galleryCoverCache, setGalleryCoverCache] = useState({});
   const navigate = useNavigate();
+
+  const handlePageChange = (newPage) => {
+    const params = new URLSearchParams(searchParams);
+    if (newPage > 1) params.set('page', String(newPage));
+    else params.delete('page');
+    setSearchParams(params);
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -87,7 +95,7 @@ export default function GalleriesPage() {
               page={data.pagination.page}
               totalPages={data.pagination.total_pages}
               total={data.pagination.total}
-              onPageChange={setPage}
+              onPageChange={handlePageChange}
             />
           )}
         </>

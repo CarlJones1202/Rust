@@ -167,6 +167,12 @@ export function listPersonGalleries(personId) {
   return request(`/api/persons/${personId}/galleries`);
 }
 
+export function relinkPerson(personId) {
+  return request(`/api/persons/${personId}/relink`, {
+    method: 'POST',
+  });
+}
+
 // --- StashDB ---
 
 export function searchStashDB(q) {

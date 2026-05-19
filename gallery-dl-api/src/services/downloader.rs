@@ -11,6 +11,7 @@ pub async fn run_gallery_dl(
     gallery_dl_bin: &str,
     url: &str,
     temp_dir: &Path,
+    download_delay: f64,
     cookies_from_browser: Option<&str>,
     tx: mpsc::UnboundedSender<PathBuf>,
 ) -> Result<(), String> {
@@ -60,8 +61,8 @@ pub async fn run_gallery_dl(
         let archive_path = abs_temp_dir.join("archive.txt");
         c.arg("--download-archive").arg(archive_path);
 
-        // Printing filepath for our processor (video:filepath ensures only actual filepaths are printed)
-        c.arg("--print").arg("video:filepath");
+        // Printing filename for our processor (filename always resolves, even after merge)
+        c.arg("--print").arg("filename");
         c.arg("--no-progress");
         
         c
@@ -85,8 +86,24 @@ pub async fn run_gallery_dl(
         if url.contains("vipergirls.to") {
             c.arg("--chapter-filter").arg("post_num == '1'");
         }
-        
+
         c.arg("-o").arg("cookies-update=false");
+
+        // Mimic a real browser to avoid 503 from CDNs / hotlink protection
+        c.arg("--user-agent")
+            .arg("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36");
+
+        // Add Referer header for known image hosts that check it
+        if lower_url.contains("imx.to") || lower_url.contains("imagebam.com") || lower_url.contains("pixhost.to") {
+            c.arg("--header").arg("Referer: https://imx.to/");
+        }
+
+        // Add delay between requests to avoid rate limiting
+        if download_delay > 0.0 {
+            c.arg("--sleep").arg(download_delay.to_string());
+            c.arg("--sleep-request").arg(download_delay.to_string());
+        }
+
         c
     };
 

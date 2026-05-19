@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Users, Search, Plus, User } from 'lucide-react';
 import { listPersons, personImageUrl } from '../api';
 import MediaGrid from '../components/MediaGrid';
@@ -8,14 +8,32 @@ import './PeoplePage.css';
 
 export default function PeoplePage() {
   const [data, setData] = useState(null);
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = parseInt(searchParams.get('page') || '1', 10);
+  const qParam = searchParams.get('q') || '';
+  const [search, setSearch] = useState(qParam);
+  const [debouncedSearch, setDebouncedSearch] = useState(qParam);
   const [loading, setLoading] = useState(true);
+  const searchParamsRef = useRef(searchParams);
+  searchParamsRef.current = searchParams;
   const navigate = useNavigate();
 
+  const handlePageChange = (newPage) => {
+    const params = new URLSearchParams(searchParams);
+    if (newPage > 1) params.set('page', String(newPage));
+    else params.delete('page');
+    setSearchParams(params);
+  };
+
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      const params = new URLSearchParams(searchParamsRef.current);
+      if (search) params.set('q', search);
+      else params.delete('q');
+      params.delete('page');
+      setSearchParams(params);
+    }, 300);
     return () => clearTimeout(timer);
   }, [search]);
 
@@ -110,7 +128,7 @@ export default function PeoplePage() {
               page={data.pagination.page}
               totalPages={data.pagination.total_pages}
               total={data.pagination.total}
-              onPageChange={setPage}
+              onPageChange={handlePageChange}
             />
           )}
         </>

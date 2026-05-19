@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Download, ExternalLink, RefreshCcw } from 'lucide-react';
 import { listRequests, requeueRequest } from '../api';
 import StatusBadge from '../components/StatusBadge';
@@ -8,19 +8,36 @@ import './DownloadsPage.css';
 
 export default function DownloadsPage() {
   const [data, setData] = useState(null);
-  const [page, setPage] = useState(1);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = parseInt(searchParams.get('page') || '1', 10);
+  const qParam = searchParams.get('q') || '';
+  const sortParam = searchParams.get('sort') || 'newest';
+  const statusParam = searchParams.get('status') || '';
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [sort, setSort] = useState('newest');
-  const [status, setStatus] = useState('');
+  const [search, setSearch] = useState(qParam);
+  const [debouncedSearch, setDebouncedSearch] = useState(qParam);
+  const [sort, setSort] = useState(sortParam);
+  const [status, setStatus] = useState(statusParam);
   const pollRef = useRef(null);
+  const searchParamsRef = useRef(searchParams);
+  searchParamsRef.current = searchParams;
+
+  const handlePageChange = (newPage) => {
+    const params = new URLSearchParams(searchParams);
+    if (newPage > 1) params.set('page', String(newPage));
+    else params.delete('page');
+    setSearchParams(params);
+  };
 
   // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
-      setPage(1); // Reset to first page on search
+      const params = new URLSearchParams(searchParamsRef.current);
+      if (search) params.set('q', search);
+      else params.delete('q');
+      params.delete('page');
+      setSearchParams(params);
     }, 500);
     return () => clearTimeout(timer);
   }, [search]);
@@ -105,8 +122,13 @@ export default function DownloadsPage() {
           <select
             value={status}
             onChange={(e) => {
-              setStatus(e.target.value);
-              setPage(1);
+              const newStatus = e.target.value;
+              setStatus(newStatus);
+              const params = new URLSearchParams(searchParams);
+              if (newStatus) params.set('status', newStatus);
+              else params.delete('status');
+              params.delete('page');
+              setSearchParams(params);
             }}
             className="filter-select"
           >
@@ -121,8 +143,13 @@ export default function DownloadsPage() {
           <select 
             value={sort} 
             onChange={(e) => {
-              setSort(e.target.value);
-              setPage(1);
+              const newSort = e.target.value;
+              setSort(newSort);
+              const params = new URLSearchParams(searchParams);
+              if (newSort !== 'newest') params.set('sort', newSort);
+              else params.delete('sort');
+              params.delete('page');
+              setSearchParams(params);
             }}
             className="sort-select"
           >
@@ -192,7 +219,7 @@ export default function DownloadsPage() {
               page={data.pagination.page}
               totalPages={data.pagination.total_pages}
               total={data.pagination.total}
-              onPageChange={setPage}
+              onPageChange={handlePageChange}
             />
           )}
         </>

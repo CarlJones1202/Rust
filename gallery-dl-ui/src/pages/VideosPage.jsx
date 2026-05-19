@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Video } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
@@ -11,9 +12,17 @@ import './VideosPage.css';
 
 export default function VideosPage() {
   const [data, setData] = useState(null);
-  const [page, setPage] = useState(1);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = parseInt(searchParams.get('page') || '1', 10);
   const [loading, setLoading] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState(-1);
+
+  const handlePageChange = (newPage) => {
+    const params = new URLSearchParams(searchParams);
+    if (newPage > 1) params.set('page', String(newPage));
+    else params.delete('page');
+    setSearchParams(params);
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -69,7 +78,7 @@ export default function VideosPage() {
               page={data.pagination.page}
               totalPages={data.pagination.total_pages}
               total={data.pagination.total}
-              onPageChange={setPage}
+              onPageChange={handlePageChange}
             />
           )}
         </>

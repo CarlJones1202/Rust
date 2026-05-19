@@ -430,17 +430,6 @@ pub async fn gallery_count_for_person(pool: &SqlitePool, person_id: &str) -> Res
     Ok(row.0)
 }
 
-/// Get gallery IDs linked to a person.
-pub async fn get_gallery_ids_for_person(pool: &SqlitePool, person_id: &str) -> Result<Vec<String>, sqlx::Error> {
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT gallery_id FROM gallery_persons WHERE person_id = ?"
-    )
-    .bind(person_id)
-    .fetch_all(pool)
-    .await?;
-    Ok(rows.into_iter().map(|r| r.0).collect())
-}
-
 /// Find a person ID by exact case-insensitive name or alias match.
 pub async fn find_person_id_by_name(pool: &SqlitePool, name: &str) -> Result<Option<String>, sqlx::Error> {
     let row: Option<(String,)> = sqlx::query_as(
