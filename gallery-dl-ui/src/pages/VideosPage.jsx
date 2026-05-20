@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Video, Edit2, Check, X } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
+import Slideshow from 'yet-another-react-lightbox/plugins/slideshow';
 import 'yet-another-react-lightbox/styles.css';
 import { listVideos, videoUrl, updateVideo } from '../api';
 import MediaGrid from '../components/MediaGrid';
