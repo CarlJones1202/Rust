@@ -8,6 +8,7 @@ pub struct PaginationParams {
     pub q: Option<String>,
     pub status: Option<String>,
     pub sort: Option<String>,
+    pub favorites: Option<String>,
 }
 
 impl PaginationParams {

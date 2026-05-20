@@ -4,6 +4,7 @@ use crate::models::image::Image;
 use crate::models::request::DownloadRequest;
 use crate::models::video::Video;
 use crate::services::auto_link;
+use crate::services::custom_downloader;
 use crate::services::downloader;
 use crate::services::file_processor::{self, MediaType};
 use sqlx::SqlitePool;
@@ -189,18 +190,35 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
     let cookies_from_browser = config.cookies_from_browser.clone();
     let download_delay = config.download_delay;
 
-    // Spawn gallery-dl in the background
-    let dl_task = tokio::spawn(async move {
-        downloader::run_gallery_dl(
-            &gallery_dl_bin,
-            &url,
-            &temp_dir_clone,
-            download_delay,
-            cookies_from_browser.as_deref(),
-            tx,
-        )
-        .await
-    });
+    // Check if this is a site we need a custom downloader for
+    let custom_site = custom_downloader::recognize_site(&url);
+
+    // Spawn gallery-dl in the background, or custom downloader for unsupported sites
+    let dl_task = if let Some(site) = custom_site {
+        let http_client = config.http_client.clone();
+        tokio::spawn(async move {
+            custom_downloader::run_custom_downloader(
+                &http_client,
+                &url,
+                site,
+                &temp_dir_clone,
+                tx,
+            )
+            .await
+        })
+    } else {
+        tokio::spawn(async move {
+            downloader::run_gallery_dl(
+                &gallery_dl_bin,
+                &url,
+                &temp_dir_clone,
+                download_delay,
+                cookies_from_browser.as_deref(),
+                tx,
+            )
+            .await
+        })
+    };
 
     let storage_dir = PathBuf::from(&config.storage_dir);
     let mut gallery_id = None;
@@ -313,6 +331,14 @@ async fn process_job(pool: &SqlitePool, config: &Config, job: &DownloadJob) {
     if let Err(ref e) = dl_result {
         error!(error = %e, "gallery-dl failed");
         let _ = DownloadRequest::update_status(pool, &job.request_id, "failed", Some(e)).await;
+    } else if image_count == 0 && video_count == 0 {
+        error!("Downloader reported success but produced no media files");
+        let _ = DownloadRequest::update_status(
+            pool,
+            &job.request_id,
+            "failed",
+            Some("Downloader exited successfully but no media files were produced"),
+        ).await;
     } else {
         let _ = DownloadRequest::update_status(pool, &job.request_id, "completed", None).await;
         // Auto-link gallery to person if person exists

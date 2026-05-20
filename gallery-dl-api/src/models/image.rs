@@ -1,8 +1,8 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Image {
     pub id: String,
     pub gallery_id: String,
@@ -13,6 +13,7 @@ pub struct Image {
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub top_colors: Option<String>,
+    pub is_favorite: bool,
     pub created_at: String,
 }
 
@@ -84,21 +85,40 @@ impl Image {
         pool: &SqlitePool,
         limit: i64,
         offset: i64,
+        favorites_only: bool,
     ) -> Result<Vec<ImageWithGallery>, sqlx::Error> {
-        sqlx::query_as::<_, ImageWithGallery>(
+        let query = if favorites_only {
+            "SELECT i.*, g.title as gallery_title FROM images i LEFT JOIN galleries g ON i.gallery_id = g.id WHERE i.is_favorite = 1 ORDER BY i.created_at DESC LIMIT ? OFFSET ?"
+        } else {
             "SELECT i.*, g.title as gallery_title FROM images i LEFT JOIN galleries g ON i.gallery_id = g.id ORDER BY i.created_at DESC LIMIT ? OFFSET ?"
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await
+        };
+        sqlx::query_as::<_, ImageWithGallery>(query)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(pool)
+            .await
     }
 
     /// Count total images.
-    pub async fn count(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
-        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM images")
+    pub async fn count(pool: &SqlitePool, favorites_only: bool) -> Result<i64, sqlx::Error> {
+        let query = if favorites_only {
+            "SELECT COUNT(*) FROM images WHERE is_favorite = 1"
+        } else {
+            "SELECT COUNT(*) FROM images"
+        };
+        let row: (i64,) = sqlx::query_as(query)
             .fetch_one(pool)
             .await?;
         Ok(row.0)
+    }
+
+    /// Set favorite status for an image.
+    pub async fn set_favorite(pool: &SqlitePool, id: &str, is_favorite: bool) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE images SET is_favorite = ? WHERE id = ?")
+            .bind(is_favorite)
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
     }
 }

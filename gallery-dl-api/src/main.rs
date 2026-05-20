@@ -22,7 +22,6 @@ pub struct AppState {
     pub db: SqlitePool,
     pub job_sender: JobSender,
     pub config: config::Config,
-    pub http_client: reqwest::Client,
 }
 
 #[tokio::main]
@@ -48,20 +47,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::fs::create_dir_all(storage_dir.join("videos")).await?;
     tokio::fs::create_dir_all(storage_dir.join("thumbnails")).await?;
     tokio::fs::create_dir_all(storage_dir.join("temp")).await?;
+    tokio::fs::create_dir_all(storage_dir.join("trickplay")).await?;
     tokio::fs::create_dir_all(storage_dir.join("persons")).await?;
     info!(dir = %config.storage_dir, "Storage directories ready");
 
     // Initialize database
     let pool = db::init_pool(&config.database_url).await?;
 
-    // Check for CLI flags that run before the worker starts
+    // Check for CLI flags that run before the worker starts.
+    // These must return early to avoid conflicting with the running server.
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a.to_lowercase() == "reset") {
-        info!("Reset flag detected: verifying all completed requests and person images");
-        reset_checker::run_reset_check(&pool, &config).await;
+        info!("Reset flag detected: running full reset of all requests");
+        reset_checker::run_reset_all(&pool, &config).await;
+        return Ok(());
     }
-    if args.iter().any(|a| a.to_lowercase() == "requeue-failed" || a.to_lowercase() == "requeue-all") {
+    if args.iter().any(|a| a.to_lowercase() == "requeue-failed") {
         reset_checker::run_requeue_failed(&pool).await;
+        return Ok(());
+    } else if args.iter().any(|a| a.to_lowercase() == "requeue-all") {
+        reset_checker::run_requeue_all(&pool, &config).await;
+        reset_checker::redownload_stashdb_images(&pool, &config, &config.http_client).await;
+        return Ok(());
     }
 
     // Start download queue worker
@@ -71,15 +78,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Recover unfinished jobs
     queue::worker::recover_pending_jobs(&pool, job_sender.clone()).await;
 
-    // Build shared HTTP client for external API calls
-    let http_client = reqwest::Client::new();
-
     // Build application state
     let state = AppState {
         db: pool,
         job_sender,
         config: config.clone(),
-        http_client,
     };
 
     // Build router
@@ -89,6 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/requests", get(handlers::requests::list_requests))
         .route("/api/requests/{id}", get(handlers::requests::get_request))
         .route("/api/requests/{id}/requeue", post(handlers::requests::requeue_request))
+        .route("/api/requests/nuke", post(handlers::requests::nuke_all))
         .route("/api/requests/guess-title", get(handlers::requests::guess_request_title))
         .route("/api/galleries", get(handlers::galleries::list_galleries))
         .route("/api/galleries/retroactive-update", post(handlers::galleries::retroactive_update_titles))
@@ -96,7 +100,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/galleries/{id}", patch(handlers::galleries::update_gallery))
         .route("/api/galleries/{id}/persons", get(handlers::persons::get_gallery_persons))
         .route("/api/images", get(handlers::images::list_images))
+        .route("/api/images/{id}/favorite", patch(handlers::images::toggle_favorite))
         .route("/api/videos", get(handlers::videos::list_videos))
+        .route("/api/videos/{id}", patch(handlers::videos::update_video))
         .route("/api/videos/{id}/progress", get(handlers::videos::get_video_progress))
         .route("/api/videos/{id}/progress", post(handlers::videos::save_video_progress))
         // Person routes

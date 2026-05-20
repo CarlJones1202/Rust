@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Video } from 'lucide-react';
+import { Video, Edit2, Check, X } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
-import { listVideos, videoUrl } from '../api';
+import { listVideos, videoUrl, updateVideo } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import VideoCard from '../components/VideoCard';
 import Pagination from '../components/Pagination';
@@ -16,6 +16,8 @@ export default function VideosPage() {
   const page = parseInt(searchParams.get('page') || '1', 10);
   const [loading, setLoading] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState(-1);
+  const [editingVideoId, setEditingVideoId] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
 
   const handlePageChange = (newPage) => {
     const params = new URLSearchParams(searchParams);
@@ -36,7 +38,32 @@ export default function VideosPage() {
     return <div className="empty-state"><p>Loading...</p></div>;
   }
 
+  const handleEditStart = (video) => {
+    setEditingVideoId(video.id);
+    setEditTitle(video.title || '');
+  };
+
+  const handleEditSave = async (id) => {
+    if (!editTitle.trim()) return;
+    try {
+      const updated = await updateVideo(id, editTitle.trim());
+      setData(prev => ({
+        ...prev,
+        data: prev.data.map(v => v.id === id ? { ...v, title: updated.title } : v),
+      }));
+      setEditingVideoId(null);
+    } catch (err) {
+      alert(`Failed to update title: ${err.message}`);
+    }
+  };
+
+  const handleEditCancel = () => {
+    setEditingVideoId(null);
+    setEditTitle('');
+  };
+
   const videos = data?.data || [];
+  const currentVideo = lightboxIndex >= 0 ? videos[lightboxIndex] : null;
   const slides = videos.map((vid) => ({
     type: 'custom-video',
     video: {
@@ -92,7 +119,41 @@ export default function VideosPage() {
         render={{
           slide: ({ slide }) => {
             if (slide.type === 'custom-video') {
-              return <EnhancedVideoPlayer video={slide.video} />;
+              const svid = slide.video;
+              const isEditing = editingVideoId === svid.id;
+              return (
+                <div className="lightbox-video-wrapper">
+                  {isEditing ? (
+                    <div className="video-title-edit">
+                      <input
+                        type="text"
+                        value={editTitle}
+                        onChange={e => setEditTitle(e.target.value)}
+                        className="title-input"
+                        autoFocus
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handleEditSave(svid.id);
+                          if (e.key === 'Escape') handleEditCancel();
+                        }}
+                      />
+                      <button className="btn btn-primary btn-icon" onClick={() => handleEditSave(svid.id)}>
+                        <Check size={16} />
+                      </button>
+                      <button className="btn btn-ghost btn-icon" onClick={handleEditCancel}>
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="video-title-bar">
+                      <span className="video-title-text">{svid.title || svid.original_filename || `${svid.hash}.${svid.extension}`}</span>
+                      <button className="btn btn-ghost btn-icon" onClick={() => handleEditStart(svid)}>
+                        <Edit2 size={14} />
+                      </button>
+                    </div>
+                  )}
+                  <EnhancedVideoPlayer video={svid} />
+                </div>
+              );
             }
             return undefined;
           },

@@ -70,3 +70,35 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.favorite-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.5);
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  color: #fff;
+  z-index: 5;
+}
+
+.media-grid-item:hover .favorite-btn {
+  opacity: 1;
+}
+
+.favorite-btn:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.favorite-btn .favorited {
+  fill: #ff3b3b;
+  color: #ff3b3b;
+}

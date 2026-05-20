@@ -73,14 +73,29 @@ export function retroactiveUpdateTitles() {
 
 // --- Images ---
 
-export function listImages(page = 1, perPage = 50) {
-  return request(`/api/images?page=${page}&per_page=${perPage}`);
+export function listImages(page = 1, perPage = 50, favorites = false) {
+  let url = `/api/images?page=${page}&per_page=${perPage}`;
+  if (favorites) url += '&favorites=true';
+  return request(url);
+}
+
+export function toggleFavorite(id, isFavorite) {
+  return request(`/api/images/${id}/favorite`, {
+    method: 'PATCH',
+    body: JSON.stringify({ is_favorite: isFavorite }),
+  });
 }
 
 // --- Videos ---
-
 export function listVideos(page = 1, perPage = 50) {
   return request(`/api/videos?page=${page}&per_page=${perPage}`);
+}
+
+export function updateVideo(id, title) {
+  return request(`/api/videos/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
+  });
 }
 
 export function getVideoProgress(id) {

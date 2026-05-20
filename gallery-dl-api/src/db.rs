@@ -86,6 +86,14 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         }
     }
 
+    // 009: Image favorites
+    if let Err(e) = sqlx::query("ALTER TABLE images ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0").execute(pool).await {
+        let msg = e.to_string();
+        if !msg.contains("duplicate column name") {
+            error!(error = %msg, "Failed to add is_favorite to images");
+        }
+    }
+
     info!("Migrations applied successfully");
     Ok(())
 }

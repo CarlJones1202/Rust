@@ -1,18 +1,16 @@
 import { Play } from 'lucide-react';
-import { videoUrl, thumbnailUrl } from '../api';
+import { thumbnailUrl } from '../api';
 import './VideoCard.css';
 
 export default function VideoCard({ video }) {
-  const src = videoUrl(video.hash, video.extension);
   const poster = thumbnailUrl(video.hash);
 
   return (
     <div className="video-card-inner">
-      <video 
-        src={src} 
-        poster={poster}
-        muted 
-        preload="metadata" 
+      <img 
+        src={poster} 
+        alt={video.original_filename || video.hash}
+        loading="lazy"
       />
       {video.progress_seconds > 0 && video.duration_seconds > 0 && (
         <div className="video-progress-overlay">
@@ -27,7 +25,7 @@ export default function VideoCard({ video }) {
       </div>
       <span className="video-ext-label">{video.extension}</span>
       <div className="overlay">
-        <div className="overlay-text">{video.original_filename || `${video.hash}.${video.extension}`}</div>
+        <div className="overlay-text">{video.title || video.original_filename || `${video.hash}.${video.extension}`}</div>
       </div>
     </div>
   );

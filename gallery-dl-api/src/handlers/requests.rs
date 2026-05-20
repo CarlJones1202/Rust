@@ -273,6 +273,29 @@ pub async fn requeue_request(
     Ok((StatusCode::ACCEPTED, Json(updated_request)))
 }
 
+/// POST /api/requests/nuke — Purge all media and reset every request to pending.
+/// StashDB profile picture redownloads run in the background so the API responds immediately.
+pub async fn nuke_all(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let count = crate::reset_checker::run_requeue_all(&state.db, &state.config).await;
+
+    let db = state.db.clone();
+    let config = state.config.clone();
+    let http_client = state.config.http_client.clone();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            crate::reset_checker::redownload_stashdb_images(&db, &config, &http_client).await;
+        });
+    });
+
+    Ok(Json(serde_json::json!({
+        "message": "All media purged and requests requeued.",
+        "requeued_count": count,
+    })))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct GuessTitleParams {
     pub url: String,

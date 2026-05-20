@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Image, Info } from 'lucide-react';
+import { Image, Info, Heart } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import Captions from 'yet-another-react-lightbox/plugins/captions';
 import 'yet-another-react-lightbox/styles.css';
 import 'yet-another-react-lightbox/plugins/captions.css';
-import { listImages, imageUrl, thumbnailUrl } from '../api';
+import { listImages, imageUrl, thumbnailUrl, toggleFavorite } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import Pagination from '../components/Pagination';
 import './ImagesPage.css';
@@ -14,6 +14,7 @@ export default function ImagesPage() {
   const [data, setData] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const page = parseInt(searchParams.get('page') || '1', 10);
+  const favoritesFilter = searchParams.get('favorites') === 'true';
   const [loading, setLoading] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState(-1);
   const [showMetadata, setShowMetadata] = useState(false);
@@ -25,13 +26,39 @@ export default function ImagesPage() {
     setSearchParams(params);
   };
 
+  const toggleFavoritesFilter = () => {
+    const params = new URLSearchParams(searchParams);
+    if (favoritesFilter) {
+      params.delete('favorites');
+    } else {
+      params.set('favorites', 'true');
+    }
+    params.delete('page');
+    setSearchParams(params);
+  };
+
+  const handleFavorite = async (img) => {
+    try {
+      const updated = await toggleFavorite(img.id, !img.is_favorite);
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          data: prev.data.map((d) => (d.id === updated.id ? { ...d, is_favorite: updated.is_favorite } : d)),
+        };
+      });
+    } catch (err) {
+      console.error('Failed to toggle favorite:', err);
+    }
+  };
+
   useEffect(() => {
     setLoading(true);
-    listImages(page, 48)
+    listImages(page, 48, favoritesFilter)
       .then(setData)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [page]);
+  }, [page, favoritesFilter]);
 
   if (loading && !data) {
     return <div className="empty-state"><p>Loading...</p></div>;
@@ -82,6 +109,16 @@ export default function ImagesPage() {
         <p>All downloaded images across all galleries</p>
       </div>
 
+      <div className="page-toolbar">
+        <button
+          className={`btn btn-sm ${favoritesFilter ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={toggleFavoritesFilter}
+        >
+          <Heart size={16} className={favoritesFilter ? 'favorited' : ''} />
+          {favoritesFilter ? 'Showing Favorites' : 'Show Favorites'}
+        </button>
+      </div>
+
       {images.length === 0 ? (
         <div className="empty-state">
           <Image size={48} />
@@ -93,6 +130,7 @@ export default function ImagesPage() {
           <MediaGrid
             items={images}
             onItemClick={(_, index) => setLightboxIndex(index)}
+            onFavorite={handleFavorite}
             renderItem={(img) => (
               <>
                 <img

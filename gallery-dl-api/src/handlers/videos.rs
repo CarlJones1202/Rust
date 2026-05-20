@@ -63,6 +63,43 @@ pub async fn save_video_progress(
     Ok(StatusCode::OK)
 }
 
+#[derive(Deserialize)]
+pub struct UpdateVideoBody {
+    pub title: String,
+}
+
+/// PATCH /api/videos/{id} — Update video metadata (e.g. title).
+pub async fn update_video(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateVideoBody>,
+) -> Result<Json<Video>, (StatusCode, Json<serde_json::Value>)> {
+    Video::update_title(&state.db, &id, &body.title)
+        .await
+        .map_err(|e| {
+            error!(error = %e, video_id = %id, "Failed to update video title");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error" })),
+            )
+        })?;
+
+    Video::get_by_id(&state.db, &id)
+        .await
+        .map_err(|e| {
+            error!(error = %e, video_id = %id, "Failed to fetch updated video");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error" })),
+            )
+        })?
+        .map(|v| Json(v))
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Video not found" })),
+        ))
+}
+
 /// GET /api/videos/{id}/progress — Get last watch position.
 pub async fn get_video_progress(
     State(state): State<AppState>,

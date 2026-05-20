@@ -1,1 +1,50 @@
-/* Images page uses shared MediaGrid + Pagination styles */
+.page-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.page-toolbar .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-sm {
+  padding: 6px 12px !important;
+  font-size: 0.8rem !important;
+}
+
+.page-toolbar .btn svg.favorited {
+  fill: #ff3b3b;
+  color: #ff3b3b;
+}
+
+.page-toolbar .btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.page-toolbar .btn-primary:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.page-toolbar .btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.page-toolbar .btn-ghost:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}

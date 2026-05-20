@@ -1,6 +1,7 @@
+import { Heart } from 'lucide-react';
 import './MediaGrid.css';
 
-export default function MediaGrid({ items, onItemClick, renderItem, layout = 'justified' }) {
+export default function MediaGrid({ items, onItemClick, renderItem, onFavorite, layout = 'justified' }) {
   return (
     <div className={`media-grid layout-${layout}`}>
       {items.map((item, index) => {
@@ -24,6 +25,21 @@ export default function MediaGrid({ items, onItemClick, renderItem, layout = 'ju
             onClick={() => onItemClick?.(item, index)}
           >
             {renderItem(item, index)}
+            {onFavorite && (
+              <button
+                className="favorite-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFavorite(item);
+                }}
+                title={item.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+              >
+                <Heart
+                  size={18}
+                  className={item.is_favorite ? 'favorited' : ''}
+                />
+              </button>
+            )}
           </div>
         );
       })}

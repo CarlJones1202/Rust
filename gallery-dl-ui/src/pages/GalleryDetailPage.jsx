@@ -5,7 +5,7 @@ import Lightbox from 'yet-another-react-lightbox';
 import Captions from 'yet-another-react-lightbox/plugins/captions';
 import 'yet-another-react-lightbox/styles.css';
 import 'yet-another-react-lightbox/plugins/captions.css';
-import { getGallery, imageUrl, thumbnailUrl, updateGallery } from '../api';
+import { getGallery, imageUrl, thumbnailUrl, updateGallery, toggleFavorite } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import PersonLinkModal from '../components/PersonLinkModal';
 import './GalleryDetailPage.css';
@@ -39,6 +39,21 @@ export default function GalleryDetailPage() {
       setIsEditing(false);
     } catch (err) {
       alert(`Failed to update title: ${err.message}`);
+    }
+  };
+
+  const handleFavorite = async (img) => {
+    try {
+      const updated = await toggleFavorite(img.id, !img.is_favorite);
+      setGallery((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          images: prev.images.map((d) => (d.id === updated.id ? { ...d, is_favorite: updated.is_favorite } : d)),
+        };
+      });
+    } catch (err) {
+      console.error('Failed to toggle favorite:', err);
     }
   };
 
@@ -163,6 +178,7 @@ export default function GalleryDetailPage() {
         <MediaGrid
           items={images}
           onItemClick={(_, index) => setLightboxIndex(index)}
+          onFavorite={handleFavorite}
           renderItem={(img) => (
             <>
               <img

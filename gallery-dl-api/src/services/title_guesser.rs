@@ -206,6 +206,30 @@ fn remove_noise(parts: Vec<String>) -> Vec<String> {
             continue;
         }
 
+        // Keep "Set" if followed by a number - likely "Set 685" pattern
+        if clean.to_lowercase() == "set" {
+            let next_is_number = i + 1 < parts.len() && {
+                let next = parts[i+1].trim_matches(|c| c == '(' || c == ')');
+                !next.is_empty() && next.chars().all(|c| c.is_digit(10))
+            };
+            if next_is_number {
+                result.push(clean.to_string());
+                i += 1;
+                continue;
+            }
+        }
+
+        // Keep a number if previous kept token was "Set" - part of "Set 685" pattern
+        if clean.chars().all(|c| c.is_digit(10)) && !clean.is_empty() {
+            if let Some(last) = result.last() {
+                if last.to_lowercase() == "set" {
+                    result.push(clean.to_string());
+                    i += 1;
+                    continue;
+                }
+            }
+        }
+
         if clean == "May" {
             let prev_is_num = i > 0 && {
                 let p = parts[i-1].trim_matches(|c| c == '(' || c == ')');

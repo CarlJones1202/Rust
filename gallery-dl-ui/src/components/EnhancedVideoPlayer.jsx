@@ -7,7 +7,7 @@ export default function EnhancedVideoPlayer({ video }) {
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [volume, setVolume] = useState(1);
+
   const [isMuted, setIsMuted] = useState(false);
   const [showTrickplay, setShowTrickplay] = useState(false);
   const [trickplayPos, setTrickplayPos] = useState({ x: 0, y: 0, time: 0 });
@@ -22,6 +22,14 @@ export default function EnhancedVideoPlayer({ video }) {
           videoRef.current.currentTime = data.position_seconds;
         }
       }
+      // Auto-play — try with sound first, fall back to muted if blocked
+      if (videoRef.current) {
+        videoRef.current.play().catch(() => {
+          videoRef.current.muted = true;
+          setIsMuted(true);
+          videoRef.current.play().catch(() => {});
+        });
+      }
     });
 
     // Cleanup on unmount
@@ -31,6 +39,12 @@ export default function EnhancedVideoPlayer({ video }) {
       }
     };
   }, [video.id]);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = isMuted;
+    }
+  }, [isMuted]);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -102,6 +116,7 @@ export default function EnhancedVideoPlayer({ video }) {
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
         className="main-video"
+        autoPlay
       />
 
       <div className="controls">

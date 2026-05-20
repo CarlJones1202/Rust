@@ -424,7 +424,7 @@ pub async fn search_stashdb(
         )
     })?;
 
-    let results = stashdb::search_performers(&state.http_client, api_key, &params.q)
+    let results = stashdb::search_performers(&state.config.http_client, api_key, &params.q)
         .await
         .map_err(|e| internal_error("StashDB search failed", e))?;
 
@@ -455,7 +455,7 @@ pub async fn import_from_stashdb(
     })?;
 
     // Fetch full performer data
-    let performer = stashdb::get_performer(&state.http_client, api_key, &body.stashdb_id)
+    let performer = stashdb::get_performer(&state.config.http_client, api_key, &body.stashdb_id)
         .await
         .map_err(|e| internal_error("StashDB fetch failed", e))?;
 
@@ -512,7 +512,7 @@ pub async fn import_from_stashdb(
     tokio::fs::create_dir_all(&thumb_dir).await.ok();
 
     for (i, stash_img) in performer.images.iter().enumerate() {
-        match stashdb::download_image(&state.http_client, &stash_img.url).await {
+        match stashdb::download_image(&state.config.http_client, &stash_img.url).await {
             Ok(data) => {
                 let mut hasher = Md5::new();
                 hasher.update(&data);

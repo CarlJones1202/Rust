@@ -9,6 +9,7 @@ pub struct Video {
     pub hash: String,
     pub extension: String,
     pub original_filename: Option<String>,
+    pub title: Option<String>,
     pub file_size_bytes: i64,
     pub duration_seconds: Option<f64>,
     pub width: Option<i32>,
@@ -112,6 +113,20 @@ impl Video {
             .fetch_one(pool)
             .await?;
         Ok(row.0)
+    }
+
+    /// Update video title.
+    pub async fn update_title(
+        pool: &SqlitePool,
+        id: &str,
+        title: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE videos SET title = ? WHERE id = ?")
+            .bind(title)
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
     }
 }
 

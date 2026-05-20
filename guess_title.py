@@ -237,6 +237,21 @@ def _remove_noise(parts: list[str]) -> list[str]:
             i += 1
             continue
         
+        # Keep "Set" if followed by a number - likely "Set 685" pattern
+        if clean.lower() == 'set':
+            next_is_number = (i + 1 < len(parts) and 
+                              re.match(r'^\d+$', parts[i+1].strip('()')))
+            if next_is_number:
+                result.append(clean)
+                i += 1
+                continue
+        
+        # Keep a number if previous kept token was "Set" - part of "Set 685" pattern
+        if clean.isdigit() and result and result[-1].lower() == 'set':
+            result.append(clean)
+            i += 1
+            continue
+        
         # Keep "May" if it's likely a name (part of "Monika May") 
         # but skip if it's a month in a date context
         if clean == 'May':
@@ -273,7 +288,7 @@ def _remove_noise(parts: list[str]) -> list[str]:
 
 def _strip_trailing_numbers(parts: list[str]) -> list[str]:
     """Remove trailing single/double-digit numbers that are date remnants."""
-    while parts and re.match(r'^\d{1,2}$', parts[-1]):
+    while parts and re.match(r'^\d{1,3}$', parts[-1]):
         # Don't strip if it looks intentional (e.g., "Part 2", "Volume 1")
         # Heuristic: keep if the previous word suggests it's a sequence number
         if len(parts) >= 2:
@@ -281,12 +296,8 @@ def _strip_trailing_numbers(parts: list[str]) -> list[str]:
             prev_lower = original_prev.lower()
             # These words suggest the number is intentional
             if prev_lower in ('part', 'vol', 'volume', 'chapter', 'set', 'ii', 'iii',
-                         'door', 'circles', 'rambler', 'life', 'overdrive'):
-                break
-            # If previous word is a title word and number is 1-4, it might be 
-            # a set number like "Shany 2" or "Escape 1"
-            num = int(parts[-1])
-            if num <= 4 and original_prev[0].isupper():
+                         'door', 'circles', 'rambler', 'life', 'overdrive', 'fans',
+                         'issue', 'no', 'scene'):
                 break
         parts = parts[:-1]
     
