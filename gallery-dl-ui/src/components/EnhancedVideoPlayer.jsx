@@ -3,7 +3,7 @@ import { Play, Pause, Volume2, VolumeX, Maximize } from 'lucide-react';
 import { saveVideoProgress, getVideoProgress, trickplayUrl } from '../api';
 import './EnhancedVideoPlayer.css';
 
-export default function EnhancedVideoPlayer({ video }) {
+export default function EnhancedVideoPlayer({ video, autoPlay = false }) {
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -14,20 +14,21 @@ export default function EnhancedVideoPlayer({ video }) {
   const [lastPosition, setLastPosition] = useState(0);
 
   useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
     // Load last position
     getVideoProgress(video.id).then(data => {
       if (data && data.position_seconds) {
         setLastPosition(data.position_seconds);
-        if (videoRef.current) {
-          videoRef.current.currentTime = data.position_seconds;
-        }
+        video.currentTime = data.position_seconds;
       }
-      // Auto-play — try with sound first, fall back to muted if blocked
-      if (videoRef.current) {
-        videoRef.current.play().catch(() => {
-          videoRef.current.muted = true;
+      // Auto-play only for the current slide
+      if (autoPlay) {
+        video.play().catch(() => {
+          video.muted = true;
           setIsMuted(true);
-          videoRef.current.play().catch(() => {});
+          video.play().catch(() => {});
         });
       }
     });
@@ -116,7 +117,6 @@ export default function EnhancedVideoPlayer({ video }) {
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
         className="main-video"
-        autoPlay
       />
 
       <div className="controls">

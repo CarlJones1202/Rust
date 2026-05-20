@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use std::path::PathBuf;
 use tracing::error;
 
 use crate::models::gallery::{Gallery, GalleryDetail};
@@ -213,4 +214,66 @@ pub async fn retroactive_update_titles(
         "galleries_updated": gallery_updated,
         "videos_updated": videos_updated
     })))
+}
+
+/// DELETE /api/galleries/:id — Delete a gallery and its images.
+pub async fn delete_gallery(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    let gallery = Gallery::get_by_id(&state.db, &id)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to get gallery");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error" })),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Gallery not found" })),
+            )
+        })?;
+
+    let images = Image::get_by_gallery_id(&state.db, &gallery.id)
+        .await
+        .unwrap_or_default();
+
+    let storage = PathBuf::from(&state.config.storage_dir);
+    for image in &images {
+        let other_count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM images WHERE hash = ? AND gallery_id != ?"
+        )
+        .bind(&image.hash)
+        .bind(&gallery.id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or((0,));
+
+        if other_count.0 == 0 {
+            let _ = tokio::fs::remove_file(
+                storage.join("images").join(format!("{}.{}", image.hash, image.extension))
+            ).await;
+            let _ = tokio::fs::remove_file(
+                storage.join("thumbnails").join(format!("{}.jpg", image.hash))
+            ).await;
+        }
+    }
+
+    // Cascade deletes images and gallery_persons
+    sqlx::query("DELETE FROM galleries WHERE id = ?")
+        .bind(&id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to delete gallery");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error" })),
+            )
+        })?;
+
+    Ok(StatusCode::NO_CONTENT)
 }

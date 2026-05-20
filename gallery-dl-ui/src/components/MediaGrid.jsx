@@ -27,7 +27,7 @@ export default function MediaGrid({ items, onItemClick, renderItem, onFavorite, 
             {renderItem(item, index)}
             {onFavorite && (
               <button
-                className="favorite-btn"
+                className={`favorite-btn ${item.is_favorite ? 'favorited' : ''}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   onFavorite(item);

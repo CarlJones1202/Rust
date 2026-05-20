@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use std::path::PathBuf;
 use tracing::error;
 
 use crate::models::image::{Image, ImageWithGallery};
@@ -96,4 +97,61 @@ pub async fn toggle_favorite(
         })?;
 
     Ok(Json(updated))
+}
+
+/// DELETE /api/images/:id — Delete an image and its file.
+pub async fn delete_image(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    let image = Image::get_by_id(&state.db, &id)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to get image");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error" })),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Image not found" })),
+            )
+        })?;
+
+    let other_count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM images WHERE hash = ? AND id != ?"
+    )
+    .bind(&image.hash)
+    .bind(&id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or((0,));
+
+    if other_count.0 == 0 {
+        let path = PathBuf::from(&state.config.storage_dir)
+            .join("images")
+            .join(format!("{}.{}", image.hash, image.extension));
+        let _ = tokio::fs::remove_file(path).await;
+
+        let thumb_path = PathBuf::from(&state.config.storage_dir)
+            .join("thumbnails")
+            .join(format!("{}.jpg", image.hash));
+        let _ = tokio::fs::remove_file(thumb_path).await;
+    }
+
+    sqlx::query("DELETE FROM images WHERE id = ?")
+        .bind(&id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to delete image");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error" })),
+            )
+        })?;
+
+    Ok(StatusCode::NO_CONTENT)
 }

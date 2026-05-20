@@ -207,7 +207,7 @@ impl Person {
         if let Some(q) = search {
             let pattern = format!("%{}%", q);
             sqlx::query_as::<_, PersonSummary>(
-                "SELECT p.id, p.name, p.disambiguation, pi.hash as image_hash, pi.extension as image_extension
+                "SELECT p.id, p.name, pi.hash as image_hash, pi.extension as image_extension
                  FROM persons p
                  LEFT JOIN person_aliases pa ON pa.person_id = p.id
                  LEFT JOIN person_images pi ON pi.person_id = p.id AND pi.is_primary = 1
@@ -223,7 +223,7 @@ impl Person {
             .await
         } else {
             sqlx::query_as::<_, PersonSummary>(
-                "SELECT p.id, p.name, p.disambiguation, pi.hash as image_hash, pi.extension as image_extension
+                "SELECT p.id, p.name, pi.hash as image_hash, pi.extension as image_extension
                  FROM persons p
                  LEFT JOIN person_images pi ON pi.person_id = p.id AND pi.is_primary = 1
                  GROUP BY p.id

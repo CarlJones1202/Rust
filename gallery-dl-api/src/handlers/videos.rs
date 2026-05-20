@@ -4,6 +4,7 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use std::path::PathBuf;
 use tracing::error;
 
 use crate::models::video::{Video, VideoProgress};
@@ -116,4 +117,66 @@ pub async fn get_video_progress(
         })?;
 
     Ok(Json(progress))
+}
+
+/// DELETE /api/videos/:id — Delete a video and its files.
+pub async fn delete_video(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    let video = Video::get_by_id(&state.db, &id)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to get video");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error" })),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Video not found" })),
+            )
+        })?;
+
+    let other_count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM videos WHERE hash = ? AND id != ?"
+    )
+    .bind(&video.hash)
+    .bind(&id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or((0,));
+
+    if other_count.0 == 0 {
+        let path = PathBuf::from(&state.config.storage_dir)
+            .join("videos")
+            .join(format!("{}.{}", video.hash, video.extension));
+        let _ = tokio::fs::remove_file(path).await;
+
+        let thumb_path = PathBuf::from(&state.config.storage_dir)
+            .join("thumbnails")
+            .join(format!("{}.jpg", video.hash));
+        let _ = tokio::fs::remove_file(thumb_path).await;
+
+        let trickplay_path = PathBuf::from(&state.config.storage_dir)
+            .join("trickplay")
+            .join(format!("{}.jpg", video.hash));
+        let _ = tokio::fs::remove_file(trickplay_path).await;
+    }
+
+    sqlx::query("DELETE FROM videos WHERE id = ?")
+        .bind(&id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to delete video");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error" })),
+            )
+        })?;
+
+    Ok(StatusCode::NO_CONTENT)
 }

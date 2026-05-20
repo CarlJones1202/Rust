@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 use tracing::info;
 
-use crate::models::person::{find_person_id_by_name, link_gallery_person};
+use crate::models::person::{find_person_id_by_name, link_gallery_person, PersonAlias};
 use crate::services::title_guesser;
 
 /// Auto-link a gallery to a person if the URL's person name matches an existing person.
@@ -37,13 +37,17 @@ pub async fn retroactively_link_person(
     person_id: &str,
     person_name: &str,
 ) -> Result<u64, sqlx::Error> {
+    let aliases = PersonAlias::get_for_person(pool, person_id).await.unwrap_or_default();
+
+    let mut name_variants: Vec<String> = vec![person_name.to_string()];
+    name_variants.extend(aliases);
+
     let requests: Vec<(String, String)> = sqlx::query_as(
         "SELECT id, url FROM requests WHERE status = 'completed'"
     )
     .fetch_all(pool)
     .await?;
 
-    let name_lower = person_name.to_lowercase();
     let mut linked_count = 0u64;
 
     for (req_id, url) in &requests {
@@ -51,7 +55,7 @@ pub async fn retroactively_link_person(
             continue;
         };
 
-        if candidate_name.to_lowercase() != name_lower {
+        if !name_variants.iter().any(|v| v.eq_ignore_ascii_case(&candidate_name)) {
             continue;
         }
 

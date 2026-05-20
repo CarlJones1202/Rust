@@ -94,6 +94,20 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         }
     }
 
+    // 010: Video title
+    let has_title: bool = sqlx::query_scalar(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('videos') WHERE name = 'title'"
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(false);
+
+    if !has_title {
+        if let Err(e) = sqlx::query("ALTER TABLE videos ADD COLUMN title TEXT").execute(pool).await {
+            error!(error = %e, "Failed to add title to videos");
+        }
+    }
+
     info!("Migrations applied successfully");
     Ok(())
 }

@@ -24,8 +24,9 @@ export default function VideoCard({ video }) {
         <Play size={22} fill="#fff" />
       </div>
       <span className="video-ext-label">{video.extension}</span>
+      <div className="video-card-title">{video.title || video.original_filename || `${video.hash}.${video.extension}`}</div>
       <div className="overlay">
-        <div className="overlay-text">{video.title || video.original_filename || `${video.hash}.${video.extension}`}</div>
+        <div className="overlay-text">{video.original_filename || `${video.hash}.${video.extension}`}</div>
       </div>
     </div>
   );

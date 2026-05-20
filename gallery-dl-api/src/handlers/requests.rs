@@ -309,3 +309,98 @@ pub async fn guess_request_title(
     let title = crate::services::title_guesser::guess_title(&state.db, &params.url).await;
     Json(serde_json::json!({ "title": title }))
 }
+
+/// DELETE /api/requests/:id — Delete a request and all its media.
+pub async fn delete_request(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    let _request = DownloadRequest::get_by_id(&state.db, &id)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to get request");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error" })),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Request not found" })),
+            )
+        })?;
+
+    let storage = PathBuf::from(&state.config.storage_dir);
+
+    let galleries = Gallery::get_by_request_id(&state.db, &id)
+        .await
+        .unwrap_or_default();
+
+    for gallery in &galleries {
+        let images = Image::get_by_gallery_id(&state.db, &gallery.id)
+            .await
+            .unwrap_or_default();
+
+        for image in &images {
+            let other_count: (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM images i JOIN galleries g ON i.gallery_id = g.id WHERE i.hash = ? AND g.request_id != ?"
+            )
+            .bind(&image.hash)
+            .bind(&id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or((0,));
+
+            if other_count.0 == 0 {
+                let _ = tokio::fs::remove_file(
+                    storage.join("images").join(format!("{}.{}", image.hash, image.extension))
+                ).await;
+                let _ = tokio::fs::remove_file(
+                    storage.join("thumbnails").join(format!("{}.jpg", image.hash))
+                ).await;
+            }
+        }
+    }
+
+    let videos = Video::get_by_request_id(&state.db, &id)
+        .await
+        .unwrap_or_default();
+
+    for video in &videos {
+        let other_count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM videos WHERE hash = ? AND request_id != ?"
+        )
+        .bind(&video.hash)
+        .bind(&id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or((0,));
+
+        if other_count.0 == 0 {
+            let _ = tokio::fs::remove_file(
+                storage.join("videos").join(format!("{}.{}", video.hash, video.extension))
+            ).await;
+            let _ = tokio::fs::remove_file(
+                storage.join("thumbnails").join(format!("{}.jpg", video.hash))
+            ).await;
+            let _ = tokio::fs::remove_file(
+                storage.join("trickplay").join(format!("{}.jpg", video.hash))
+            ).await;
+        }
+    }
+
+    sqlx::query("DELETE FROM requests WHERE id = ?")
+        .bind(&id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to delete request");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error" })),
+            )
+        })?;
+
+    Ok(StatusCode::NO_CONTENT)
+}

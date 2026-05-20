@@ -37,6 +37,8 @@ export default function ImagesPage() {
     setSearchParams(params);
   };
 
+  const images = data?.data || [];
+
   const handleFavorite = async (img) => {
     try {
       const updated = await toggleFavorite(img.id, !img.is_favorite);
@@ -53,6 +55,18 @@ export default function ImagesPage() {
   };
 
   useEffect(() => {
+    if (lightboxIndex < 0) return;
+    const handler = (e) => {
+      if (e.key === 'f' || e.key === 'F') {
+        const img = images[lightboxIndex];
+        if (img) handleFavorite(img);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [lightboxIndex, images, handleFavorite]);
+
+  useEffect(() => {
     setLoading(true);
     listImages(page, 48, favoritesFilter)
       .then(setData)
@@ -63,8 +77,6 @@ export default function ImagesPage() {
   if (loading && !data) {
     return <div className="empty-state"><p>Loading...</p></div>;
   }
-
-  const images = data?.data || [];
   const slides = images.map((img) => ({
     src: imageUrl(img.hash, img.extension),
     title: img.original_filename || `${img.hash}.${img.extension}`,
@@ -167,6 +179,18 @@ export default function ImagesPage() {
         captions={{ descriptionTextAlign: 'left' }}
         toolbar={{
           buttons: [
+            <button
+              key="favorite-toggle"
+              type="button"
+              className="yarl__button"
+              title="Toggle Favorite (F)"
+              onClick={() => {
+                const img = images[lightboxIndex];
+                if (img) handleFavorite(img);
+              }}
+            >
+              <Heart size={24} style={images[lightboxIndex]?.is_favorite ? { fill: '#ff3b3b', color: '#ff3b3b' } : {}} />
+            </button>,
             <button
               key="metadata-toggle"
               type="button"

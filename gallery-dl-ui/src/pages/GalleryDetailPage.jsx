@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Image, Edit2, Check, X, Users, Plus, User, Info } from 'lucide-react';
+import { ArrowLeft, Image, Edit2, Check, X, Users, Plus, User, Info, Heart } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import Captions from 'yet-another-react-lightbox/plugins/captions';
 import 'yet-another-react-lightbox/styles.css';
@@ -42,6 +42,8 @@ export default function GalleryDetailPage() {
     }
   };
 
+  const images = gallery?.images || [];
+
   const handleFavorite = async (img) => {
     try {
       const updated = await toggleFavorite(img.id, !img.is_favorite);
@@ -57,6 +59,18 @@ export default function GalleryDetailPage() {
     }
   };
 
+  useEffect(() => {
+    if (lightboxIndex < 0) return;
+    const handler = (e) => {
+      if (e.key === 'f' || e.key === 'F') {
+        const img = images[lightboxIndex];
+        if (img) handleFavorite(img);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [lightboxIndex, images, handleFavorite]);
+
   if (loading) {
     return <div className="empty-state"><p>Loading...</p></div>;
   }
@@ -65,7 +79,6 @@ export default function GalleryDetailPage() {
     return <div className="empty-state"><h3>Gallery not found</h3></div>;
   }
 
-  const images = gallery.images || [];
   const slides = images.map((img) => ({
     src: imageUrl(img.hash, img.extension),
     title: img.original_filename || `${img.hash}.${img.extension}`,
@@ -206,6 +219,18 @@ export default function GalleryDetailPage() {
         captions={{ descriptionTextAlign: 'left' }}
         toolbar={{
           buttons: [
+            <button
+              key="favorite-toggle"
+              type="button"
+              className="yarl__button"
+              title="Toggle Favorite (F)"
+              onClick={() => {
+                const img = images[lightboxIndex];
+                if (img) handleFavorite(img);
+              }}
+            >
+              <Heart size={24} style={images[lightboxIndex]?.is_favorite ? { fill: '#ff3b3b', color: '#ff3b3b' } : {}} />
+            </button>,
             <button
               key="metadata-toggle"
               type="button"

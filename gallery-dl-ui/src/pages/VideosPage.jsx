@@ -117,12 +117,13 @@ export default function VideosPage() {
         close={() => setLightboxIndex(-1)}
         slides={slides}
         render={{
-          slide: ({ slide }) => {
+          slide: ({ slide, offset }) => {
             if (slide.type === 'custom-video') {
               const svid = slide.video;
               const isEditing = editingVideoId === svid.id;
               return (
                 <div className="lightbox-video-wrapper">
+                  <EnhancedVideoPlayer video={svid} autoPlay={offset === 0} />
                   {isEditing ? (
                     <div className="video-title-edit">
                       <input
@@ -151,7 +152,6 @@ export default function VideosPage() {
                       </button>
                     </div>
                   )}
-                  <EnhancedVideoPlayer video={svid} />
                 </div>
               );
             }
