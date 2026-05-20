@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Image, Edit2, Check, X, Users, Plus, User, Info, Heart } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import Captions from 'yet-another-react-lightbox/plugins/captions';
+import Slideshow from 'yet-another-react-lightbox/plugins/slideshow';
 import 'yet-another-react-lightbox/styles.css';
 import 'yet-another-react-lightbox/plugins/captions.css';
 import { getGallery, imageUrl, thumbnailUrl, updateGallery, toggleFavorite } from '../api';
@@ -215,7 +216,8 @@ export default function GalleryDetailPage() {
         close={() => setLightboxIndex(-1)}
         slides={slides}
         controller={{ closeOnBackdropClick: true }}
-        plugins={[Captions]}
+        plugins={[Captions, Slideshow]}
+        slideshow={{ delay: 3000 }}
         captions={{ descriptionTextAlign: 'left' }}
         toolbar={{
           buttons: [
@@ -240,6 +242,7 @@ export default function GalleryDetailPage() {
             >
               <Info size={24} style={{ opacity: showMetadata ? 1 : 0.5 }} />
             </button>,
+            "slideshow",
             "close",
           ]
         }}

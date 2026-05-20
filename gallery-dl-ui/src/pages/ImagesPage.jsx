@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Image, Info, Heart } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import Captions from 'yet-another-react-lightbox/plugins/captions';
+import Slideshow from 'yet-another-react-lightbox/plugins/slideshow';
 import 'yet-another-react-lightbox/styles.css';
 import 'yet-another-react-lightbox/plugins/captions.css';
 import { listImages, imageUrl, thumbnailUrl, toggleFavorite } from '../api';
@@ -175,7 +176,8 @@ export default function ImagesPage() {
         close={() => setLightboxIndex(-1)}
         slides={slides}
         controller={{ closeOnBackdropClick: true }}
-        plugins={[Captions]}
+        plugins={[Captions, Slideshow]}
+        slideshow={{ delay: 3000 }}
         captions={{ descriptionTextAlign: 'left' }}
         toolbar={{
           buttons: [
@@ -200,6 +202,7 @@ export default function ImagesPage() {
             >
               <Info size={24} style={{ opacity: showMetadata ? 1 : 0.5 }} />
             </button>,
+            "slideshow",
             "close",
           ]
         }}
