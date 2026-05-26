@@ -134,3 +134,22 @@
 .submit-feedback.error {
   color: var(--error);
 }
+
+.url-input-backup {
+  flex: 1;
+  width: 100%;
+}
+
+.toggle-backup {
+  display: inline-block;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  cursor: pointer;
+  padding: 2px 0;
+  transition: color var(--transition-fast);
+}
+
+.toggle-backup:hover {
+  color: var(--accent);
+}

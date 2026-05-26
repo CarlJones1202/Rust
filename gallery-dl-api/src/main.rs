@@ -8,6 +8,7 @@ mod reset_checker;
 mod services;
 
 use axum::{routing::get, routing::post, routing::patch, routing::delete, Router};
+
 use axum::http::header;
 use queue::worker::{DownloadJob, JobSender};
 use sqlx::SqlitePool;
@@ -23,6 +24,7 @@ pub struct AppState {
     pub db: SqlitePool,
     pub job_sender: JobSender,
     pub config: config::Config,
+    pub site_health: services::site_checker::SiteHealth,
 }
 
 #[tokio::main]
@@ -59,6 +61,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // exit before the server started; now they all spawn background work
     // and let the server come up normally.
     let args: Vec<String> = std::env::args().collect();
+    // Special developer/testing command: `test-download <url>`
+    // Runs the custom downloader for a single URL and exits.
+    if args.len() >= 2 && args[1].to_lowercase() == "test-download" {
+        if args.len() < 3 {
+            eprintln!("Usage: test-download <url>");
+            return Ok(());
+        }
+        let url = &args[2];
+        let site = if crate::services::custom_downloader::recognize_site(url).is_some() {
+            crate::services::custom_downloader::recognize_site(url).unwrap()
+        } else {
+            eprintln!("URL not recognized as a custom site");
+            return Ok(());
+        };
+
+        let client = reqwest::Client::builder()
+            .user_agent(crate::services::custom_downloader::BROWSER_UA)
+            .http1_only()
+            .build()
+            .expect("failed to build client");
+
+        let temp_dir = std::path::Path::new("./tmp_test_kitty");
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        println!("Running custom downloader for site {} and url {}", site, url);
+        match crate::services::custom_downloader::run_custom_downloader(&client, url, site, temp_dir, tx).await {
+            Ok(()) => println!("Custom downloader completed successfully"),
+            Err(e) => println!("Custom downloader failed: {}", e),
+        }
+        return Ok(());
+    }
+    // Developer helper: reprocess files in ./tmp_test_kitty using the normal
+    // file processing pipeline. Useful to reproduce thumbnail generation errors.
+    if args.len() >= 2 && args[1].to_lowercase() == "reprocess-tmp" {
+        let tmp_dir = std::path::Path::new("./tmp_test_kitty");
+        let storage_dir = std::path::Path::new("./storage");
+        if !tmp_dir.exists() {
+            eprintln!("tmp_test_kitty not found");
+            return Ok(());
+        }
+
+        let mut entries = tokio::fs::read_dir(tmp_dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if path.is_file() {
+                println!("Processing {}", path.display());
+                match crate::services::file_processor::process_single_file(&path, &storage_dir).await {
+                    Ok(Some(p)) => println!("Processed: {} type={:?}", p.hash, p.media_type),
+                    Ok(None) => println!("Skipped unknown type: {}", path.display()),
+                    Err(e) => eprintln!("Error processing {}: {}", path.display(), e),
+                }
+            }
+        }
+        return Ok(());
+    }
     if args.iter().any(|a| a.to_lowercase() == "reset") {
         info!("Reset flag detected: spawning full reset in background, server will start normally");
         let bg_pool = pool.clone();
@@ -94,52 +150,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Track which hosts are known to be down
     let site_health = services::site_checker::SiteHealth::new();
 
-    // On startup, probe hosts that have "processing" jobs.
-    // If a host is unreachable, mark it down and reset its jobs to "pending"
-    // so they don't get re-queued until the host recovers.
+    // On startup, probe hosts from all unfinished jobs (pending + processing).
+    // If a host is unreachable, mark it down and reset its processing jobs to
+    // "pending" so they don't get re-queued until the host recovers.
+    // Backup URL hosts are also probed.
     {
         let http_client = &config.http_client;
         let extract_host = services::site_checker::extract_host;
-        match models::request::DownloadRequest::list_processing(&pool).await {
-            Ok(processing_jobs) if !processing_jobs.is_empty() => {
-                let mut hosts: Vec<String> = processing_jobs.iter()
-                    .filter_map(|r| extract_host(&r.url))
-                    .collect();
-                hosts.sort();
-                hosts.dedup();
-                info!(host_count = hosts.len(), "Probing hosts from processing jobs on startup");
-                for host in &hosts {
-                    let url = format!("https://{}", host);
-                    match http_client.get(&url).send().await {
-                        Ok(resp) if resp.status().is_success() => {
-                            info!(host = %host, "Host is up on startup");
-                        }
-                        _ => {
-                            info!(host = %host, "Host is down on startup, resetting processing jobs to pending");
-                            site_health.mark_down(host).await;
-                            for req in &processing_jobs {
-                                if extract_host(&req.url).as_deref() == Some(host.as_str()) {
-                                    let _ = models::request::DownloadRequest::update_status(
-                                        &pool, &req.id, "pending", None,
-                                    ).await;
-                                }
+        let all_unfinished = models::request::DownloadRequest::list_unfinished(&pool).await.unwrap_or_default();
+        if !all_unfinished.is_empty() {
+            let mut hosts: Vec<String> = all_unfinished.iter()
+                .filter_map(|r| extract_host(&r.url))
+                .chain(
+                    all_unfinished.iter().filter_map(|r| {
+                        r.backup_url.as_ref().and_then(|u| extract_host(u))
+                    })
+                )
+                .collect();
+            hosts.sort();
+            hosts.dedup();
+            info!(host_count = hosts.len(), "Probing hosts from unfinished jobs on startup");
+            for host in &hosts {
+                if services::site_checker::probe_host(http_client, host).await {
+                    info!(host = %host, "Host is up on startup");
+                    site_health.mark_up(host).await;
+                } else {
+                    info!(host = %host, "Host is down on startup, marking down and resetting processing jobs");
+                    site_health.mark_down(host).await;
+                    for req in &all_unfinished {
+                        if req.status == "processing" {
+                            let primary_match = extract_host(&req.url).as_deref() == Some(host.as_str());
+                            let backup_match = req.backup_url.as_ref()
+                                .and_then(|u| extract_host(u))
+                                .as_deref() == Some(host.as_str());
+                            if primary_match || backup_match {
+                                let _ = models::request::DownloadRequest::update_status(
+                                    &pool, &req.id, "pending", None,
+                                ).await;
                             }
                         }
                     }
                 }
             }
-            _ => {}
         }
     }
 
     // Start download queue worker with site health tracking
-    let job_sender = queue::worker::spawn_worker(pool.clone(), config.clone(), site_health.clone());
+    let job_sender = queue::worker::spawn_worker(
+        pool.clone(),
+        config.clone(),
+        site_health.clone(),
+        config.http_client.clone(),
+    );
     info!("Download queue worker started");
 
     // Channel for host-recovery notifications from the periodic checker
     let (host_up_tx, mut host_up_rx) = mpsc::unbounded_channel::<String>();
 
-    // Listen for recovered hosts and re-queue their unfinished jobs
+    // Listen for recovered hosts and re-queue their unfinished jobs.
+    // Matches both primary URLs and backup URLs belonging to the recovered host.
     let recovery_pool = pool.clone();
     let recovery_sender = job_sender.clone();
     tokio::spawn(async move {
@@ -150,15 +219,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(requests) => {
                     let mut count = 0u32;
                     for req in &requests {
-                        if let Some(req_host) = extract_host(&req.url) {
-                            if req_host == host {
-                                let _ = recovery_sender.send(DownloadJob {
-                                    request_id: req.id.clone(),
-                                    url: req.url.clone(),
-                                    title: req.title.clone(),
-                                });
-                                count += 1;
-                            }
+                        let primary_match = extract_host(&req.url)
+                            .map(|h| h == host)
+                            .unwrap_or(false);
+                        let backup_match = req.backup_url.as_ref()
+                            .and_then(|u| extract_host(u))
+                            .map(|h| h == host)
+                            .unwrap_or(false);
+
+                        if primary_match || backup_match {
+                            // Use primary URL if its host is the recovered one,
+                            // otherwise use backup URL (primary host may still be down)
+                            let effective_url = if primary_match {
+                                req.url.clone()
+                            } else if let Some(ref bu) = req.backup_url {
+                                bu.clone()
+                            } else {
+                                req.url.clone()
+                            };
+                            let _ = recovery_sender.send(DownloadJob {
+                                request_id: req.id.clone(),
+                                url: effective_url,
+                                title: req.title.clone(),
+                                backup_url: req.backup_url.clone(),
+                            });
+                            count += 1;
                         }
                     }
                     if count > 0 {
@@ -183,6 +268,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         db: pool,
         job_sender,
         config: config.clone(),
+        site_health,
     };
 
     // Build router
@@ -193,6 +279,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/requests/{id}", get(handlers::requests::get_request))
         .route("/api/requests/{id}/requeue", post(handlers::requests::requeue_request))
         .route("/api/requests/nuke", post(handlers::requests::nuke_all))
+        .route("/api/requests/{id}", patch(handlers::requests::update_request))
         .route("/api/requests/{id}", delete(handlers::requests::delete_request))
         .route("/api/requests/guess-title", get(handlers::requests::guess_request_title))
         .route("/api/galleries", get(handlers::galleries::list_galleries))
@@ -224,6 +311,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .route("/api/persons/{id}/relink", post(handlers::persons::relink_person))
         .route("/api/persons/{id}/stashdb-import", post(handlers::persons::import_from_stashdb))
         .route("/api/stashdb/search", get(handlers::persons::search_stashdb))
+        // Admin / utility routes
+        .route("/api/admin/hosts", get(handlers::admin::list_hosts))
+        .route("/api/admin/hosts/{host}/check", post(handlers::admin::check_host))
+        .route("/api/admin/hosts/{host}/mark-down", post(handlers::admin::mark_host_down))
         // Static file serving for media
         .nest_service(
             "/media/images",

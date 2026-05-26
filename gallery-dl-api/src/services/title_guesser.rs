@@ -4,9 +4,11 @@ use percent_encoding::percent_decode_str;
 use std::sync::OnceLock;
 
 static RE_SLUG: OnceLock<Regex> = OnceLock::new();
+static RE_SLUG_KITTY: OnceLock<Regex> = OnceLock::new();
 static RE_PARENS: OnceLock<Regex> = OnceLock::new();
 static RE_DATE_INLINE: OnceLock<Regex> = OnceLock::new();
 static RE_DATE_INLINE_LONG: OnceLock<Regex> = OnceLock::new();
+static RE_DATE_INLINE_DAY_FIRST: OnceLock<Regex> = OnceLock::new();
 static RE_DATE_END_1: OnceLock<Regex> = OnceLock::new();
 static RE_DATE_END_2: OnceLock<Regex> = OnceLock::new();
 static RE_DATE_END_3: OnceLock<Regex> = OnceLock::new();
@@ -34,15 +36,24 @@ fn get_regex(lock: &'static OnceLock<Regex>, pattern: &str) -> &'static Regex {
 }
 
 pub async fn guess_title(pool: &SqlitePool, url: &str) -> Option<String> {
-    if !url.contains("vipergirls.to/threads/") {
+    let lower = url.to_lowercase();
+    let is_viper = lower.contains("vipergirls.to/threads/");
+    let is_kitty = lower.contains("kitty-kats.net/threads/");
+
+    if !is_viper && !is_kitty {
         return None;
     }
 
-    let re_slug = get_regex(&RE_SLUG, r"/threads/\d+-(.*?)(?:\?|#|&|$)");
-    let slug = re_slug.captures(url)?.get(1)?.as_str();
+    let slug = if is_viper {
+        let re_slug = get_regex(&RE_SLUG, r"/threads/\d+-(.*?)(?:\?|#|&|$)");
+        re_slug.captures(url)?.get(1)?.as_str().to_string()
+    } else {
+        let re_slug = get_regex(&RE_SLUG_KITTY, r"/threads/(.*?)\.\d+(?:/|\?|#|&|$)");
+        re_slug.captures(url)?.get(1)?.as_str().to_string()
+    };
 
     // URL-decode
-    let slug = percent_decode_str(slug).decode_utf8_lossy().into_owned();
+    let slug = percent_decode_str(&slug).decode_utf8_lossy().into_owned();
 
     // Phase 0: Pre-clean
     let slug = preclean_slug(&slug);
@@ -70,6 +81,7 @@ fn preclean_slug(slug: &str) -> String {
     let mut s = slug.to_string();
 
     s = get_regex(&RE_PARENS, r"\([^)]*\)").replace_all(&s, "").into_owned();
+    s = get_regex(&RE_DATE_INLINE_DAY_FIRST, r"(?i)-\d{1,2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)-\d{2,4}(?:\b|$)").replace_all(&s, "").into_owned();
     s = get_regex(&RE_DATE_INLINE, r"-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{1,2}-\d{4}").replace_all(&s, "").into_owned();
     s = get_regex(&RE_DATE_INLINE_LONG, r"-(?:January|February|March|April|May|June|July|August|September|October|November|December)-\d{1,2}-\d{4}").replace_all(&s, "").into_owned();
     s = get_regex(&RE_DATE_END_1, r"-\d{1,2}-\d{1,2}-\d{2,4}$").replace_all(&s, "").into_owned();
@@ -371,6 +383,49 @@ async fn format_title(pool: &SqlitePool, parts: Vec<String>) -> String {
     }
 
     parts.iter().map(|s| title_case(s)).collect::<Vec<String>>().join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::SqlitePool;
+
+    #[tokio::test]
+    async fn test_guess_title_vipergirls() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let url = "https://vipergirls.to/threads/7366072-Julietta-Sucker-For-Her-82-Photos-Sep-21-2022?highlight=julietta+sucker+for+her";
+        let title = guess_title(&pool, url).await;
+        assert_eq!(title, Some("Julietta Sucker For Her".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_guess_title_kitty_kats() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        
+        let url1 = "https://kitty-kats.net/threads/georgia-brown-presenting-georgia-brown-x119-28-dec-2025.2904280/";
+        let title1 = guess_title(&pool, url1).await;
+        assert_eq!(title1, Some("Georgia Brown Presenting Georgia Brown".to_string()));
+
+        let url2 = "https://kitty-kats.net/threads/danna-bliss-teasing-eyes-x107-26-may-2026.2918490/";
+        let title2 = guess_title(&pool, url2).await;
+        assert_eq!(title2, Some("Danna Bliss Teasing Eyes".to_string()));
+
+        let url3 = "https://kitty-kats.net/threads/danna-bliss-afternoon-in-the-woods-1-120-pictures-hi-res-19-nov-2025.2900641/";
+        let title3 = guess_title(&pool, url3).await;
+        assert_eq!(title3, Some("Danna Bliss Afternoon In The Woods 1".to_string()));
+
+        let url4 = "https://kitty-kats.net/threads/danna-bliss-my-rhythm-x120-01-aug-2025.2891507/";
+        let title4 = guess_title(&pool, url4).await;
+        assert_eq!(title4, Some("Danna Bliss My Rhythm".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_guess_title_unsupported() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let url = "https://google.com";
+        let title = guess_title(&pool, url).await;
+        assert_eq!(title, None);
+    }
 }
 
 

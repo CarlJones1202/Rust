@@ -247,7 +247,25 @@ pub async fn process_single_file(
 
 /// Extract top 5 dominant colors from an image.
 fn extract_top_colors(path: &Path) -> Result<String, String> {
-    let img = image::open(path).map_err(|e| format!("Failed to open image: {e}"))?;
+    use image::io::Reader as ImageReader;
+    // Use content-based format detection rather than relying on file extension.
+    let reader = ImageReader::open(path)
+        .map_err(|e| format!("Failed to open image file: {e}"))?;
+    let reader = reader
+        .with_guessed_format()
+        .map_err(|e| format!("Failed to guess image format: {e}"))?;
+    let img = reader
+        .decode()
+        .map_err(|e| {
+            // Collect a short hexdump of the file header for debugging
+            let header = std::fs::read(path)
+                .map(|b| {
+                    let take = b.iter().take(16).cloned().collect::<Vec<u8>>();
+                    take.iter().map(|x| format!("{:02X}", x)).collect::<Vec<_>>().join(" ")
+                })
+                .unwrap_or_else(|_| "<unreadable>".to_string());
+            format!("Failed to open image: {e} (header: {header})")
+        })?;
     
     // Resize for speed - 100x100 is plenty for color extraction
     let small_img = img.thumbnail(100, 100).to_rgb8();
@@ -267,7 +285,23 @@ fn extract_top_colors(path: &Path) -> Result<String, String> {
 
 /// Generate a thumbnail for an image.
 fn generate_thumbnail(src: &Path, dst: &Path) -> Result<(), String> {
-    let img = image::open(src).map_err(|e| format!("Failed to open image: {e}"))?;
+    use image::io::Reader as ImageReader;
+    // Prefer format detection from content so files named .jpg but containing
+    // PNG (or other formats) decode correctly.
+    let reader = ImageReader::open(src).map_err(|e| format!("Failed to open image file: {e}"))?;
+    let reader = reader
+        .with_guessed_format()
+        .map_err(|e| format!("Failed to guess image format: {e}"))?;
+    let img = reader.decode().map_err(|e| {
+        // On decode failure, include a short hexdump of the file header for debugging
+        let header = std::fs::read(src)
+            .map(|b| {
+                let take = b.iter().take(16).cloned().collect::<Vec<u8>>();
+                take.iter().map(|x| format!("{:02X}", x)).collect::<Vec<_>>().join(" ")
+            })
+            .unwrap_or_else(|_| "<unreadable>".to_string());
+        format!("Failed to open image: {e} (header: {header})")
+    })?;
 
     // Use thumbnail method which maintains aspect ratio
     // 500x500 is a good balance for grid views

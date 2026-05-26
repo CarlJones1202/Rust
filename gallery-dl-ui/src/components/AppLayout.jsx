@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { Download, LayoutGrid, Image, Video, HardDrive, Users } from 'lucide-react';
+import { Download, LayoutGrid, Image, Video, HardDrive, Users, Settings } from 'lucide-react';
 import UrlSubmitForm from './UrlSubmitForm';
 import './AppLayout.css';
 
@@ -31,6 +31,11 @@ export default function AppLayout() {
           <NavLink to="/videos">
             <Video size={18} />
             Videos
+          </NavLink>
+          <div className="sidebar-spacer" />
+          <NavLink to="/admin">
+            <Settings size={18} />
+            Admin
           </NavLink>
         </nav>
       </aside>

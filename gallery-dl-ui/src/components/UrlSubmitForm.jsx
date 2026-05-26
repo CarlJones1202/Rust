@@ -6,6 +6,8 @@ import './UrlSubmitForm.css';
 export default function UrlSubmitForm() {
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
+  const [backupUrl, setBackupUrl] = useState('');
+  const [showBackup, setShowBackup] = useState(false);
   const [bulkUrls, setBulkUrls] = useState('');
   const [bulkMode, setBulkMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -35,10 +37,10 @@ export default function UrlSubmitForm() {
     setTimeout(() => setFeedback(null), 4000);
   };
 
-  const submitSingle = async (targetUrl, targetName = null) => {
+  const submitSingle = async (targetUrl, targetName = null, targetBackupUrl = null) => {
     const trimmed = targetUrl.trim();
     if (!trimmed) return;
-    await createRequest(trimmed, targetName);
+    await createRequest(trimmed, targetName, targetBackupUrl || null);
     return trimmed;
   };
 
@@ -75,9 +77,11 @@ export default function UrlSubmitForm() {
         showFeedback('success', `Queued ${successCount} new URLs`);
       } else {
         try {
-          await submitSingle(url, name);
+          await submitSingle(url, name, backupUrl);
           setUrl('');
           setName('');
+          setBackupUrl('');
+          setShowBackup(false);
           showFeedback('success', 'URL queued for download');
         } catch (err) {
           if (err.message === 'URL already exists') {
@@ -123,6 +127,23 @@ export default function UrlSubmitForm() {
               disabled={submitting}
               className="url-input-name"
             />
+            {showBackup && (
+              <input
+                type="text"
+                value={backupUrl}
+                onChange={(e) => setBackupUrl(e.target.value)}
+                placeholder="Backup URL (used if primary host is down)..."
+                disabled={submitting}
+                className="url-input-backup"
+              />
+            )}
+            <a
+              href="#"
+              className="toggle-backup"
+              onClick={(e) => { e.preventDefault(); setShowBackup(!showBackup); }}
+            >
+              {showBackup ? '− Remove backup URL' : '+ Add backup URL'}
+            </a>
           </div>
         )}
         {feedback && (

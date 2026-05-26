@@ -7,6 +7,7 @@ import PeoplePage from './pages/PeoplePage';
 import PersonDetailPage from './pages/PersonDetailPage';
 import ImagesPage from './pages/ImagesPage';
 import VideosPage from './pages/VideosPage';
+import AdminPage from './pages/AdminPage';
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/people/:id" element={<PersonDetailPage />} />
           <Route path="/images" element={<ImagesPage />} />
           <Route path="/videos" element={<VideosPage />} />
+          <Route path="/admin" element={<AdminPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
@@ -252,9 +253,57 @@ fn extract_pmvhaven_id(url: &str) -> Option<String> {
         .and_then(|cap| cap.get(1).map(|m| m.as_str().to_lowercase()))
 }
 
+/// ── Cookie helpers ─────────────────────────────────────────────────────
+
+/// Try to load a Cookie header from `cookies.txt` in the current directory
+/// (Netscape cookie file format). Returns `None` if the file doesn't exist.
+fn load_cookie_header(domain: &str) -> Option<String> {
+    let path = std::path::Path::new("cookies.txt");
+    if !path.exists() {
+        return None;
+    }
+    let content = std::fs::read_to_string(path).ok()?;
+    let mut cookies: HashMap<String, String> = HashMap::new();
+    let domain_lower = domain.to_lowercase();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        // Netscape format: domain, domain_flag, path, secure, expires, name, value
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() < 7 {
+            continue;
+        }
+        let cookie_domain = parts[0].trim().to_lowercase();
+        let trimmed = cookie_domain.trim_start_matches('.');
+        // Match if exact or if the request domain is a subdomain of the cookie domain
+        let matches = domain_lower == trimmed
+            || domain_lower.ends_with(&format!(".{}", trimmed));
+        if !matches {
+            continue;
+        }
+        let name = parts[5].trim();
+        let value = parts[6].trim();
+        if !name.is_empty() && !value.is_empty() {
+            cookies.insert(name.to_string(), value.to_string());
+        }
+    }
+    if cookies.is_empty() {
+        return None;
+    }
+    Some(
+        cookies
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect::<Vec<_>>()
+            .join("; "),
+    )
+}
+
 /// ── kitty-kats.net downloader ──────────────────────────────────────────
 
-const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
+pub const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 
 const IMAGE_EXTS: &[&str] = &[".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".tif", ".avif"];
 
@@ -274,8 +323,10 @@ const KNOWN_IMAGE_HOSTS: &[&str] = &[
 /// Download all images from a kitty-kats.net thread page.
 /// Finds external image links in the post body and resolves each to its
 /// full-size image URL via a generic cascade that works with any image host.
+/// Uses a separate reqwest client forced to HTTP/1.1 because Cloudflare
+/// blocks HTTP/2 connections from rustls-based clients.
 async fn download_kitty_kats(
-    http_client: &reqwest::Client,
+    _http_client: &reqwest::Client,
     url: &str,
     temp_dir: &Path,
     tx: mpsc::UnboundedSender<PathBuf>,
@@ -284,20 +335,98 @@ async fn download_kitty_kats(
         .await
         .map_err(|e| format!("Failed to create temp dir: {e}"))?;
 
+    // Create a dedicated HTTP/1.1-only client so Cloudflare doesn't block us.
+    // reqwest's default client negotiates HTTP/2 which triggers Cloudflare's
+    // bot detection when combined with rustls's TLS fingerprint.
+    let http_client = reqwest::Client::builder()
+        .user_agent(BROWSER_UA)
+        .http1_only()
+        .build()
+        .map_err(|e| format!("Failed to build HTTP/1.1 client: {e}"))?;
+
+    let cookie_header = load_cookie_header("kitty-kats.net");
+
     info!(url = %url, "Fetching kitty-kats.net thread");
 
-    let resp = http_client
+    let mut req = http_client
         .get(url)
         .header("User-Agent", BROWSER_UA)
         .header("Referer", "https://kitty-kats.net/")
-        .send()
-        .await
+        // Add common browser headers to reduce bot-detection blocks
+        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header("Accept-Language", "en-US,en;q=0.5")
+        .header("Upgrade-Insecure-Requests", "1")
+        .header("Connection", "keep-alive");
+    if let Some(cookies) = &cookie_header {
+        req = req.header("Cookie", cookies);
+    }
+    let resp = req.send().await
         .map_err(|e| format!("Failed to fetch thread page: {e}"))?;
 
     if !resp.status().is_success() {
+        // If Cloudflare returned 403 to reqwest, try a curl fallback which
+        // uses the system TLS stack / curl fingerprint. This often bypasses
+        // Cloudflare checks that block rustls/hyper clients.
+        if resp.status().as_u16() == 403 {
+            match tokio::process::Command::new("curl")
+                .arg("-sSL")
+                .arg("-A")
+                .arg(BROWSER_UA)
+                .arg("-H")
+                .arg("Referer: https://kitty-kats.net/")
+                .arg(url)
+                .output()
+                .await
+            {
+                Ok(out) if out.status.success() => {
+                    let html = String::from_utf8_lossy(&out.stdout).to_string();
+                    // proceed using html below
+                    let candidates = extract_image_candidates(&html);
+                    info!(count = candidates.len(), "Found candidate image links (curl fallback)");
+
+                    if candidates.is_empty() {
+                        return Err("No image links found in thread (curl fallback)".to_string());
+                    }
+
+                    // Continue with the rest of the logic using the extracted candidates
+                    let mut success_count = 0u64;
+                    let mut error_count = 0u64;
+
+                    for (i, candidate_url) in candidates.iter().enumerate() {
+                        info!(num = i + 1, total = candidates.len(), url = %candidate_url, "Resolving image URL (curl fallback)");
+
+                        match resolve_full_image(&http_client, candidate_url).await {
+                            Ok(full_url) => {
+                                match download_image(&http_client, &full_url, temp_dir, i, &tx).await {
+                                    Ok(()) => success_count += 1,
+                                    Err(e) => {
+                                        warn!(url = %candidate_url, error = %e, "Failed to download image");
+                                        error_count += 1;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                warn!(url = %candidate_url, error = %e, "Failed to resolve image URL");
+                                error_count += 1;
+                            }
+                        }
+                    }
+
+                    info!(success = success_count, errors = error_count, "Kitty-kats download complete (curl fallback)");
+
+                    if success_count == 0 {
+                        return Err("Failed to download any images (curl fallback)".to_string());
+                    }
+
+                    return Ok(());
+                }
+                Ok(out) => return Err(format!("curl failed with status {}", out.status)),
+                Err(e) => return Err(format!("Failed to spawn curl fallback: {e}")),
+            }
+        }
+
         return Err(format!("Thread page returned status {}", resp.status()));
     }
-
     let html = resp.text().await.map_err(|e| format!("Failed to read thread page: {e}"))?;
     let candidates = extract_image_candidates(&html);
     info!(count = candidates.len(), "Found candidate image links");
@@ -312,9 +441,9 @@ async fn download_kitty_kats(
     for (i, candidate_url) in candidates.iter().enumerate() {
         info!(num = i + 1, total = candidates.len(), url = %candidate_url, "Resolving image URL");
 
-        match resolve_full_image(http_client, candidate_url).await {
+        match resolve_full_image(&http_client, candidate_url).await {
             Ok(full_url) => {
-                match download_image(http_client, &full_url, temp_dir, i, &tx).await {
+                match download_image(&http_client, &full_url, temp_dir, i, &tx).await {
                     Ok(()) => success_count += 1,
                     Err(e) => {
                         warn!(url = %candidate_url, error = %e, "Failed to download image");
@@ -399,6 +528,10 @@ async fn resolve_full_image(
     let head_resp = http_client
         .head(page_url)
         .header("User-Agent", BROWSER_UA)
+        // make the HEAD look more like a browser call
+        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header("Accept-Language", "en-US,en;q=0.5")
+        .header("Connection", "keep-alive")
         .send()
         .await
         .map_err(|e| format!("HEAD request failed: {e}"))?;
@@ -416,6 +549,9 @@ async fn resolve_full_image(
         .get(page_url)
         .header("User-Agent", BROWSER_UA)
         .header("Referer", "https://kitty-kats.net/")
+        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header("Accept-Language", "en-US,en;q=0.5")
+        .header("Connection", "keep-alive")
         .send()
         .await
         .map_err(|e| format!("GET request failed: {e}"))?;
@@ -567,6 +703,9 @@ async fn download_image(
         .get(image_url)
         .header("User-Agent", BROWSER_UA)
         .header("Referer", "https://kitty-kats.net/")
+        .header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+        .header("Accept-Language", "en-US,en;q=0.5")
+        .header("Connection", "keep-alive")
         .send()
         .await
         .map_err(|e| format!("Failed to start image download: {e}"))?;

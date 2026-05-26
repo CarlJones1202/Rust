@@ -19,6 +19,13 @@ use std::path::PathBuf;
 pub struct CreateRequestBody {
     pub url: String,
     pub name: Option<String>,
+    pub backup_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateRequestBody {
+    pub backup_url: Option<String>,
+    pub name: Option<String>,
 }
 
 /// POST /api/requests — Submit a new URL for download.
@@ -34,6 +41,12 @@ pub async fn create_request(
         ));
     }
 
+    let backup_url = body
+        .backup_url
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
     // Check if URL already exists
     if let Ok(Some(_)) = DownloadRequest::get_by_url(&state.db, &url).await {
         return Err((
@@ -43,21 +56,27 @@ pub async fn create_request(
     }
 
     // Insert request into DB
-    let request = DownloadRequest::create(&state.db, &url, body.name.as_deref())
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to create request");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "Failed to create request" })),
-            )
-        })?;
+    let request = DownloadRequest::create(
+        &state.db,
+        &url,
+        body.name.as_deref(),
+        backup_url.as_deref(),
+    )
+    .await
+    .map_err(|e| {
+        error!(error = %e, "Failed to create request");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "Failed to create request" })),
+        )
+    })?;
 
     // Send job to download queue
     if let Err(e) = state.job_sender.send(DownloadJob {
         request_id: request.id.clone(),
         url: url.clone(),
         title: request.title.clone(),
+        backup_url: backup_url.clone(),
     }) {
         error!(error = %e, "Failed to enqueue download job");
         let _ = DownloadRequest::update_status(
@@ -246,6 +265,7 @@ pub async fn requeue_request(
         request_id: id.clone(),
         url: request.url.clone(),
         title: request.title.clone(),
+        backup_url: request.backup_url.clone(),
     }) {
         error!(error = %e, "Failed to re-enqueue download job");
         return Err((
@@ -299,6 +319,76 @@ pub async fn nuke_all(
     Ok(Json(serde_json::json!({
         "message": "Nuke started — all media is being purged and requests requeued in the background.",
     })))
+}
+
+/// PATCH /api/requests/:id — Update backup_url or name on an existing request.
+pub async fn update_request(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateRequestBody>,
+) -> Result<Json<DownloadRequest>, (StatusCode, Json<serde_json::Value>)> {
+    // Verify the request exists
+    let _existing = DownloadRequest::get_by_id(&state.db, &id)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to get request for update");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error" })),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Request not found" })),
+            )
+        })?;
+
+    if let Some(backup_url) = &body.backup_url {
+        let trimmed = backup_url.trim().to_string();
+        let val = if trimmed.is_empty() { None } else { Some(trimmed.as_str()) };
+        DownloadRequest::update_backup_url(&state.db, &id, val)
+            .await
+            .map_err(|e| {
+                error!(error = %e, "Failed to update backup_url");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "Failed to update backup_url" })),
+                )
+            })?;
+    }
+
+    if let Some(name) = &body.name {
+        let trimmed = name.trim().to_string();
+        let val = if trimmed.is_empty() { None } else { Some(trimmed.as_str()) };
+        DownloadRequest::update_title(&state.db, &id, val)
+            .await
+            .map_err(|e| {
+                error!(error = %e, "Failed to update name");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "Failed to update name" })),
+                )
+            })?;
+    }
+
+    let request = DownloadRequest::get_by_id(&state.db, &id)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to get updated request");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Database error" })),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Request not found" })),
+            )
+        })?;
+
+    Ok(Json(request))
 }
 
 #[derive(Debug, Deserialize)]

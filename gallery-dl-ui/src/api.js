@@ -19,10 +19,10 @@ async function request(path, options = {}) {
 
 // --- Requests ---
  
-export function createRequest(url, name = null) {
+export function createRequest(url, name = null, backupUrl = null) {
   return request('/api/requests', {
     method: 'POST',
-    body: JSON.stringify({ url, name }),
+    body: JSON.stringify({ url, name, backup_url: backupUrl }),
   });
 }
 
@@ -41,6 +41,13 @@ export function getRequest(id) {
 export function requeueRequest(id) {
   return request(`/api/requests/${id}/requeue`, {
     method: 'POST',
+  });
+}
+
+export function updateRequest(id, data) {
+  return request(`/api/requests/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
   });
 }
 
@@ -198,6 +205,24 @@ export function importFromStashDB(personId, stashdbId) {
   return request(`/api/persons/${personId}/stashdb-import`, {
     method: 'POST',
     body: JSON.stringify({ stashdb_id: stashdbId }),
+  });
+}
+
+// --- Admin ---
+
+export function listHosts() {
+  return request('/api/admin/hosts');
+}
+
+export function checkHost(host) {
+  return request(`/api/admin/hosts/${encodeURIComponent(host)}/check`, {
+    method: 'POST',
+  });
+}
+
+export function markHostDown(host) {
+  return request(`/api/admin/hosts/${encodeURIComponent(host)}/mark-down`, {
+    method: 'POST',
   });
 }
 

@@ -49,6 +49,29 @@
   white-space: nowrap;
 }
 
+.meta-backup-url {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.meta-backup-url.has-backup {
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.meta-backup-url a {
+  display: inline !important;
+  font-weight: 400 !important;
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
 .download-error {
   font-size: 0.78rem;
   color: var(--error);
@@ -128,6 +151,65 @@
 .sort-select:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+/* Inline backup URL editing */
+.meta-backup-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.backup-edit-input {
+  width: 200px;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-family: inherit;
+  outline: none;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+  padding: 2px;
+}
+
+.btn-icon:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.btn-icon-sm {
+  width: 18px;
+  height: 18px;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-family: inherit;
+  padding: 0;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  transition: color var(--transition-fast);
+}
+
+.btn-link:hover {
+  color: var(--accent);
 }
 
 

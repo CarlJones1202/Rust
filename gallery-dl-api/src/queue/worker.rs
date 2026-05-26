@@ -20,6 +20,7 @@ pub struct DownloadJob {
     pub request_id: String,
     pub url: String,
     pub title: Option<String>,
+    pub backup_url: Option<String>,
 }
 
 /// Sender half for submitting jobs to the download queue.
@@ -55,10 +56,11 @@ pub fn spawn_worker(
     pool: SqlitePool,
     config: Config,
     site_health: SiteHealth,
+    http_client: reqwest::Client,
 ) -> JobSender {
     let (tx, rx) = mpsc::unbounded_channel::<DownloadJob>();
 
-    tokio::spawn(run_worker(rx, pool, config, site_health));
+    tokio::spawn(run_worker(rx, pool, config, site_health, http_client));
 
     tx
 }
@@ -66,7 +68,8 @@ pub fn spawn_worker(
 /// Query the database for unfinished jobs and re-queue them.
 /// Jobs whose host is known-down are skipped (left in their current DB state)
 /// so they don't clog the queue. The periodic checker will re-queue them
-/// when the host recovers.
+/// when the host recovers. If the primary host is down but a backup URL
+/// is available and its host is up, the job is re-queued with the backup URL.
 pub async fn recover_pending_jobs(pool: &SqlitePool, tx: JobSender, site_health: &SiteHealth) {
     match DownloadRequest::list_unfinished(pool).await {
         Ok(requests) => {
@@ -76,23 +79,55 @@ pub async fn recover_pending_jobs(pool: &SqlitePool, tx: JobSender, site_health:
             let mut recovered = 0u32;
             let mut skipped = 0u32;
             for req in &requests {
-                let host = site_checker::extract_host(&req.url);
-                if let Some(ref host) = host {
-                    if site_health.is_down(host).await {
-                        info!(
-                            host = %host,
-                            request_id = %req.id,
-                            "Skipping recovery for down-host job"
-                        );
-                        skipped += 1;
-                        continue;
+                // Determine primary host status
+                let primary_down = if let Some(ref host) = site_checker::extract_host(&req.url) {
+                    site_health.is_down(host).await
+                } else {
+                    false
+                };
+
+                if primary_down {
+                    // Primary host is down — try backup if available
+                    if let Some(ref backup_url) = req.backup_url {
+                        let backup_url = backup_url.trim();
+                        if !backup_url.is_empty() {
+                            let backup_down =
+                                if let Some(ref bh) = site_checker::extract_host(backup_url) {
+                                    site_health.is_down(bh).await
+                                } else {
+                                    false
+                                };
+                            if !backup_down {
+                                info!(
+                                    backup_url = %backup_url,
+                                    request_id = %req.id,
+                                    "Primary host down, re-queueing with backup URL"
+                                );
+                                let _ = tx.send(DownloadJob {
+                                    request_id: req.id.clone(),
+                                    url: backup_url.to_string(),
+                                    title: req.title.clone(),
+                                    backup_url: req.backup_url.clone(),
+                                });
+                                recovered += 1;
+                                continue;
+                            }
+                        }
                     }
+                    info!(
+                        request_id = %req.id,
+                        "Skipping recovery for down-host job (and backup if any)"
+                    );
+                    skipped += 1;
+                    continue;
                 }
+
                 info!(request_id = %req.id, url = %req.url, "Re-queueing job");
                 let _ = tx.send(DownloadJob {
                     request_id: req.id.clone(),
                     url: req.url.clone(),
                     title: req.title.clone(),
+                    backup_url: req.backup_url.clone(),
                 });
                 recovered += 1;
             }
@@ -104,12 +139,82 @@ pub async fn recover_pending_jobs(pool: &SqlitePool, tx: JobSender, site_health:
     }
 }
 
-/// Main worker dispatcher: receives jobs and routes them to bucket workers.
+/// Resolve the effective URL for a job: if the primary host is down,
+/// try the backup URL (if available and its host is up).
+/// Returns `None` if the job should be skipped entirely.
+async fn resolve_effective_url(
+    job: &mut DownloadJob,
+    site_health: &SiteHealth,
+    http_client: &reqwest::Client,
+) -> Option<()> {
+    let host = site_checker::extract_host(&job.url)?;
+
+    // If we don't know this host yet, probe it proactively
+    if !site_health.is_known(&host).await {
+        if site_checker::probe_host(http_client, &host).await {
+            info!(host = %host, "Host probed and reachable");
+            site_health.mark_up(&host).await;
+        } else {
+            warn!(host = %host, "Host unreachable on probe, marking down");
+            site_health.mark_down(&host).await;
+        }
+    }
+
+    if !site_health.is_down(&host).await {
+        return Some(());
+    }
+
+    // Primary host is down — try backup URL
+    if let Some(ref backup_url) = job.backup_url {
+        let backup_url = backup_url.trim();
+        if backup_url.is_empty() {
+            warn!(host = %host, request_id = %job.request_id, "Primary host down, no backup URL configured, skipping job");
+            return None;
+        }
+
+        let backup_host = site_checker::extract_host(backup_url);
+
+        // Also probe backup host if unknown
+        if let Some(ref bh) = backup_host {
+            if !site_health.is_known(bh).await {
+                if site_checker::probe_host(http_client, bh).await {
+                    info!(backup_host = %bh, "Backup host probed and reachable");
+                    site_health.mark_up(bh).await;
+                } else {
+                    warn!(backup_host = %bh, "Backup host unreachable on probe, marking down");
+                    site_health.mark_down(bh).await;
+                }
+            }
+        }
+
+        let backup_down = if let Some(ref bh) = backup_host {
+            site_health.is_down(bh).await
+        } else {
+            false
+        };
+
+        if backup_down {
+            warn!(host = %host, backup_host = ?backup_host, request_id = %job.request_id, "Primary and backup hosts both down, skipping job");
+            return None;
+        }
+
+        warn!(host = %host, request_id = %job.request_id, "Primary host down, falling back to backup URL");
+        job.url = backup_url.to_string();
+        return Some(());
+    }
+
+    warn!(host = %host, request_id = %job.request_id, "Primary host down, no backup URL configured, skipping job");
+    None
+}
+
+/// Main worker dispatcher: receives jobs, resolves effective URL (primary vs backup),
+/// and routes them to bucket workers.
 async fn run_worker(
     mut rx: mpsc::UnboundedReceiver<DownloadJob>,
     pool: SqlitePool,
     config: Config,
     site_health: SiteHealth,
+    http_client: reqwest::Client,
 ) {
     let (image_tx, image_rx) = mpsc::unbounded_channel::<DownloadJob>();
     let (video_tx, video_rx) = mpsc::unbounded_channel::<DownloadJob>();
@@ -138,7 +243,12 @@ async fn run_worker(
         "Download dispatcher started"
     );
 
-    while let Some(job) = rx.recv().await {
+    while let Some(mut job) = rx.recv().await {
+        let skip = resolve_effective_url(&mut job, &site_health, &http_client).await;
+        if skip.is_none() {
+            continue;
+        }
+
         let bucket = classify_job(&job.url);
         match bucket {
             JobBucket::Image => {

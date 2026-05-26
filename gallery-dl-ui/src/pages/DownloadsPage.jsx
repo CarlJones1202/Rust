@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Download, ExternalLink, RefreshCcw } from 'lucide-react';
-import { listRequests, requeueRequest } from '../api';
+import { Download, ExternalLink, RefreshCcw, Pencil, Check, X } from 'lucide-react';
+import { listRequests, requeueRequest, updateRequest } from '../api';
 import StatusBadge from '../components/StatusBadge';
 import Pagination from '../components/Pagination';
 import './DownloadsPage.css';
@@ -18,6 +18,8 @@ export default function DownloadsPage() {
   const [debouncedSearch, setDebouncedSearch] = useState(qParam);
   const [sort, setSort] = useState(sortParam);
   const [status, setStatus] = useState(statusParam);
+  const [editingBackup, setEditingBackup] = useState(null);
+  const [backupDraft, setBackupDraft] = useState('');
   const pollRef = useRef(null);
   const searchParamsRef = useRef(searchParams);
   searchParamsRef.current = searchParams;
@@ -79,6 +81,28 @@ export default function DownloadsPage() {
   const isPolling = data?.data.some((r) =>
     ['pending', 'downloading', 'processing'].includes(r.status)
   );
+
+  const startEditingBackup = (req) => {
+    setEditingBackup(req.id);
+    setBackupDraft(req.backup_url || '');
+  };
+
+  const cancelEditingBackup = () => {
+    setEditingBackup(null);
+    setBackupDraft('');
+  };
+
+  const handleSaveBackup = async (id) => {
+    try {
+      const val = backupDraft.trim() || null;
+      await updateRequest(id, { backup_url: val });
+      setEditingBackup(null);
+      setBackupDraft('');
+      fetchData(page, debouncedSearch, sort, status);
+    } catch (err) {
+      alert(`Failed to update backup URL: ${err.message}`);
+    }
+  };
 
   const handleRequeue = async (id) => {
     try {
@@ -182,6 +206,33 @@ export default function DownloadsPage() {
                   </Link>
                   <div className="download-meta">
                     {req.title && <span className="meta-url">{req.url}</span>}
+                    {editingBackup === req.id ? (
+                      <span className="meta-backup-edit">
+                        <input
+                          type="text"
+                          value={backupDraft}
+                          onChange={(e) => setBackupDraft(e.target.value)}
+                          placeholder="Backup URL..."
+                          className="backup-edit-input"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveBackup(req.id);
+                            if (e.key === 'Escape') cancelEditingBackup();
+                          }}
+                        />
+                        <button className="btn-icon btn-icon-sm" onClick={() => handleSaveBackup(req.id)} title="Save"><Check size={12} /></button>
+                        <button className="btn-icon btn-icon-sm" onClick={cancelEditingBackup} title="Cancel"><X size={12} /></button>
+                      </span>
+                    ) : req.backup_url ? (
+                      <span className="meta-backup-url has-backup" title="Backup URL">
+                        Backup: <a href={req.backup_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>{req.backup_url}</a>
+                        <button className="btn-icon btn-icon-sm" onClick={() => startEditingBackup(req)} title="Edit backup URL"><Pencil size={10} /></button>
+                      </span>
+                    ) : (
+                      <span className="meta-backup-url">
+                        <button className="btn-link" onClick={() => startEditingBackup(req)}>+ Add backup URL</button>
+                      </span>
+                    )}
                     <span>{new Date(req.created_at + 'Z').toLocaleString()}</span>
                     <span>ID: {req.id.slice(0, 8)}…</span>
                   </div>

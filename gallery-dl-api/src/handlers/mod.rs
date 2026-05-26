@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod galleries;
 pub mod images;
 pub mod persons;

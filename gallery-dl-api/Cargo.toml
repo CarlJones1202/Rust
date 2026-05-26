@@ -19,7 +19,7 @@ tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
 tower = "0.5"
 thiserror = "2"
 image = "0.25"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "native-tls"] }
 regex = "1"
 percent-encoding = "2.3"
 palette_extract = "0.1.0"

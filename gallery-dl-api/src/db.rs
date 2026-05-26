@@ -108,6 +108,14 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         }
     }
 
+    // 011: Backup URL for requests
+    if let Err(e) = sqlx::query("ALTER TABLE requests ADD COLUMN backup_url TEXT").execute(pool).await {
+        let msg = e.to_string();
+        if !msg.contains("duplicate column name") {
+            error!(error = %msg, "Failed to add backup_url to requests");
+        }
+    }
+
     info!("Migrations applied successfully");
     Ok(())
 }

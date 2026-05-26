@@ -80,6 +80,10 @@
   flex-shrink: 0;
 }
 
+.sidebar-spacer {
+  flex: 1;
+}
+
 /* ===== Main Content ===== */
 .main-content {
   flex: 1;

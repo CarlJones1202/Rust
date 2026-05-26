@@ -6,6 +6,7 @@ use uuid::Uuid;
 pub struct DownloadRequest {
     pub id: String,
     pub url: String,
+    pub backup_url: Option<String>,
     pub title: Option<String>,
     pub status: String,
     pub error_message: Option<String>,
@@ -26,13 +27,19 @@ pub struct DownloadRequestDetail {
 
 impl DownloadRequest {
     /// Create a new download request.
-    pub async fn create(pool: &SqlitePool, url: &str, title: Option<&str>) -> Result<Self, sqlx::Error> {
+    pub async fn create(
+        pool: &SqlitePool,
+        url: &str,
+        title: Option<&str>,
+        backup_url: Option<&str>,
+    ) -> Result<Self, sqlx::Error> {
         let id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO requests (id, url, title, status) VALUES (?, ?, ?, 'pending')"
+            "INSERT INTO requests (id, url, backup_url, title, status) VALUES (?, ?, ?, ?, 'pending')"
         )
         .bind(&id)
         .bind(url)
+        .bind(backup_url)
         .bind(title)
         .execute(pool)
         .await?;
@@ -179,22 +186,6 @@ impl DownloadRequest {
         .await
     }
 
-    /// List requests currently in 'processing' status.
-    pub async fn list_processing(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as::<_, Self>(
-            r#"
-            SELECT r.*, 
-                   (SELECT COUNT(*) FROM images i JOIN galleries g ON i.gallery_id = g.id WHERE g.request_id = r.id) as image_count,
-                   (SELECT COUNT(*) FROM videos v WHERE v.request_id = r.id) as video_count
-            FROM requests r 
-            WHERE r.status = 'processing' 
-            ORDER BY r.created_at ASC
-            "#
-        )
-        .fetch_all(pool)
-        .await
-    }
-
     /// Update request status.
     pub async fn update_status(
         pool: &SqlitePool,
@@ -207,6 +198,38 @@ impl DownloadRequest {
         )
         .bind(status)
         .bind(error_message)
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Update the backup URL for an existing request.
+    pub async fn update_backup_url(
+        pool: &SqlitePool,
+        id: &str,
+        backup_url: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE requests SET backup_url = ?, updated_at = datetime('now') WHERE id = ?"
+        )
+        .bind(backup_url)
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Update the title for an existing request.
+    pub async fn update_title(
+        pool: &SqlitePool,
+        id: &str,
+        title: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE requests SET title = ?, updated_at = datetime('now') WHERE id = ?"
+        )
+        .bind(title)
         .bind(id)
         .execute(pool)
         .await?;
