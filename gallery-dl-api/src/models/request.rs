@@ -179,6 +179,22 @@ impl DownloadRequest {
         .await
     }
 
+    /// List requests currently in 'processing' status.
+    pub async fn list_processing(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Self>(
+            r#"
+            SELECT r.*, 
+                   (SELECT COUNT(*) FROM images i JOIN galleries g ON i.gallery_id = g.id WHERE g.request_id = r.id) as image_count,
+                   (SELECT COUNT(*) FROM videos v WHERE v.request_id = r.id) as video_count
+            FROM requests r 
+            WHERE r.status = 'processing' 
+            ORDER BY r.created_at ASC
+            "#
+        )
+        .fetch_all(pool)
+        .await
+    }
+
     /// Update request status.
     pub async fn update_status(
         pool: &SqlitePool,

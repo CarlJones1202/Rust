@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::sync::mpsc;
-use tracing::info;
+use tracing::{info, warn};
 use regex::Regex;
+use scraper::{Html, Selector};
 
 /// Check if a URL is for a site we handle with a custom downloader.
 /// Returns the site name if recognized, None otherwise.
@@ -11,6 +12,8 @@ pub fn recognize_site(url: &str) -> Option<&'static str> {
     let lower = url.to_lowercase();
     if lower.contains("pmvhaven.com") {
         Some("pmvhaven")
+    } else if lower.contains("kitty-kats.net") {
+        Some("kitty-kats")
     } else {
         None
     }
@@ -30,6 +33,7 @@ pub async fn run_custom_downloader(
 
     match site {
         "pmvhaven" => download_pmvhaven(http_client, url, temp_dir, tx).await,
+        "kitty-kats" => download_kitty_kats(http_client, url, temp_dir, tx).await,
         _ => Err(format!("Unknown custom site: {site}")),
     }
 }
@@ -246,4 +250,368 @@ fn extract_pmvhaven_id(url: &str) -> Option<String> {
     let re = Regex::new(r"_([a-fA-F0-9]{24})").ok()?;
     re.captures(url)
         .and_then(|cap| cap.get(1).map(|m| m.as_str().to_lowercase()))
+}
+
+/// ── kitty-kats.net downloader ──────────────────────────────────────────
+
+const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
+
+const IMAGE_EXTS: &[&str] = &[".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".tif", ".avif"];
+
+const KNOWN_IMAGE_HOSTS: &[&str] = &[
+    "imagetwist.com",
+    "imgbox.com",
+    "imagebam.com",
+    "imgbb.com",
+    "postimg.cc",
+    "imagevenue.com",
+    "pixhost.to",
+    "imgur.com",
+    "imagepond.net",
+    "imgth.com",
+];
+
+/// Download all images from a kitty-kats.net thread page.
+/// Finds external image links in the post body and resolves each to its
+/// full-size image URL via a generic cascade that works with any image host.
+async fn download_kitty_kats(
+    http_client: &reqwest::Client,
+    url: &str,
+    temp_dir: &Path,
+    tx: mpsc::UnboundedSender<PathBuf>,
+) -> Result<(), String> {
+    tokio::fs::create_dir_all(temp_dir)
+        .await
+        .map_err(|e| format!("Failed to create temp dir: {e}"))?;
+
+    info!(url = %url, "Fetching kitty-kats.net thread");
+
+    let resp = http_client
+        .get(url)
+        .header("User-Agent", BROWSER_UA)
+        .header("Referer", "https://kitty-kats.net/")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch thread page: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Thread page returned status {}", resp.status()));
+    }
+
+    let html = resp.text().await.map_err(|e| format!("Failed to read thread page: {e}"))?;
+    let candidates = extract_image_candidates(&html);
+    info!(count = candidates.len(), "Found candidate image links");
+
+    if candidates.is_empty() {
+        return Err("No image links found in thread".to_string());
+    }
+
+    let mut success_count = 0u64;
+    let mut error_count = 0u64;
+
+    for (i, candidate_url) in candidates.iter().enumerate() {
+        info!(num = i + 1, total = candidates.len(), url = %candidate_url, "Resolving image URL");
+
+        match resolve_full_image(http_client, candidate_url).await {
+            Ok(full_url) => {
+                match download_image(http_client, &full_url, temp_dir, i, &tx).await {
+                    Ok(()) => success_count += 1,
+                    Err(e) => {
+                        warn!(url = %candidate_url, error = %e, "Failed to download image");
+                        error_count += 1;
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(url = %candidate_url, error = %e, "Failed to resolve image URL");
+                error_count += 1;
+            }
+        }
+    }
+
+    info!(success = success_count, errors = error_count, "Kitty-kats download complete");
+
+    if success_count == 0 {
+        return Err("Failed to download any images".to_string());
+    }
+
+    Ok(())
+}
+
+/// Extract candidate image URLs from a kitty-kats.net thread HTML page.
+/// Looks for `<a>` links inside `.bbWrapper` that point to external image content.
+fn extract_image_candidates(html: &str) -> Vec<String> {
+    let doc = Html::parse_document(html);
+    let wrapper_sel = Selector::parse("div.bbWrapper").unwrap();
+    let link_sel = Selector::parse("a[href]").unwrap();
+    let img_child_sel = Selector::parse("img").unwrap();
+
+    let mut urls = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    let wrapper = match doc.select(&wrapper_sel).next() {
+        Some(w) => w,
+        None => return urls,
+    };
+
+    for link in wrapper.select(&link_sel) {
+        let href = link.value().attr("href").unwrap();
+
+        if !is_image_candidate(href) {
+            continue;
+        }
+
+        if !seen.insert(href.to_string()) {
+            continue;
+        }
+
+        let has_img_child = link.select(&img_child_sel).next().is_some();
+        let looks_like_image = IMAGE_EXTS.iter().any(|ext| href.to_lowercase().ends_with(ext));
+        let is_known_host = KNOWN_IMAGE_HOSTS.iter().any(|host| href.to_lowercase().contains(host));
+
+        if has_img_child || looks_like_image || is_known_host {
+            urls.push(href.to_string());
+        }
+    }
+
+    urls
+}
+
+/// Check if a URL is a valid image candidate (not internal, not a known non-image host).
+fn is_image_candidate(href: &str) -> bool {
+    let lower = href.to_lowercase();
+    !(href.starts_with('/')
+        || href.starts_with('#')
+        || href.starts_with("javascript:")
+        || lower.contains("kitty-kats.net")
+        || lower.contains("k2s.cc")
+        || lower.contains("keep2share")
+        || lower.contains("picstate"))
+}
+
+/// Resolve an image page URL to the actual full-size image URL.
+/// Uses a cascade of strategies to handle any image host.
+async fn resolve_full_image(
+    http_client: &reqwest::Client,
+    page_url: &str,
+) -> Result<String, String> {
+    // Strategy 1: HEAD to check if the URL itself is a direct image
+    let head_resp = http_client
+        .head(page_url)
+        .header("User-Agent", BROWSER_UA)
+        .send()
+        .await
+        .map_err(|e| format!("HEAD request failed: {e}"))?;
+
+    if let Some(content_type) = head_resp.headers().get("content-type") {
+        if let Ok(ct) = content_type.to_str() {
+            if ct.starts_with("image/") {
+                return Ok(page_url.to_string());
+            }
+        }
+    }
+
+    // Strategy 2: GET the page and parse HTML for the full-size image
+    let resp = http_client
+        .get(page_url)
+        .header("User-Agent", BROWSER_UA)
+        .header("Referer", "https://kitty-kats.net/")
+        .send()
+        .await
+        .map_err(|e| format!("GET request failed: {e}"))?;
+
+    // Check if response is itself a direct image (some hosts redirect)
+    if let Some(content_type) = resp.headers().get("content-type") {
+        if let Ok(ct) = content_type.to_str() {
+            if ct.starts_with("image/") {
+                return Ok(page_url.to_string());
+            }
+        }
+    }
+
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if !content_type.contains("text/html") && !content_type.contains("application/xhtml") {
+        return Ok(page_url.to_string());
+    }
+
+    let body = resp.text().await.map_err(|e| format!("Failed to read response body: {e}"))?;
+    let doc = Html::parse_document(&body);
+
+    // 2a. Open Graph image meta tag
+    let og_sel = Selector::parse(r#"meta[property="og:image"]"#).unwrap();
+    if let Some(el) = doc.select(&og_sel).next() {
+        if let Some(url) = el.value().attr("content") {
+            if !url.is_empty() {
+                info!("Resolved via og:image");
+                return Ok(absolutize_url(page_url, url));
+            }
+        }
+    }
+
+    // 2b. image_src link tag
+    let img_src_sel = Selector::parse(r#"link[rel="image_src"]"#).unwrap();
+    if let Some(el) = doc.select(&img_src_sel).next() {
+        if let Some(url) = el.value().attr("href") {
+            if !url.is_empty() {
+                info!("Resolved via image_src");
+                return Ok(absolutize_url(page_url, url));
+            }
+        }
+    }
+
+    // 2c. Fancybox gallery link (imagetwist, many others)
+    let fancybox_sel = Selector::parse(r#"a[data-fancybox="gallery"]"#).unwrap();
+    if let Some(el) = doc.select(&fancybox_sel).next() {
+        if let Some(url) = el.value().attr("href") {
+            if !url.is_empty() {
+                info!("Resolved via fancybox gallery link");
+                return Ok(absolutize_url(page_url, url));
+            }
+        }
+    }
+
+    // 2d. Download link (common pattern on image hosts)
+    let download_sel = Selector::parse("a[download]").unwrap();
+    if let Some(el) = doc.select(&download_sel).next() {
+        if let Some(url) = el.value().attr("href") {
+            if !url.is_empty() && is_likely_content_image(url) {
+                info!("Resolved via download link");
+                return Ok(absolutize_url(page_url, url));
+            }
+        }
+    }
+
+    // 2e. Fallback: first content <img> with absolute src
+    let img_sel = Selector::parse("img[src]").unwrap();
+    for el in doc.select(&img_sel) {
+        if let Some(src) = el.value().attr("src") {
+            if is_likely_content_image(src) {
+                info!("Resolved via fallback <img> tag");
+                return Ok(absolutize_url(page_url, src));
+            }
+        }
+    }
+
+    Err(format!("Could not find any image URL on page {page_url}"))
+}
+
+/// Check if an image src looks like a real content image vs a UI element.
+fn is_likely_content_image(src: &str) -> bool {
+    let lower = src.to_lowercase();
+    if lower.contains("icon")
+        || lower.contains("logo")
+        || lower.contains("favicon")
+        || lower.contains("avatar")
+        || lower.contains("sprite")
+        || lower.contains("banner")
+        || lower.contains("button")
+        || lower.contains("spacer")
+        || lower.contains("pixel")
+    {
+        return false;
+    }
+    src.starts_with("http://") || src.starts_with("https://") || src.starts_with("//")
+}
+
+/// Convert a potentially relative URL to absolute using a base URL.
+fn absolutize_url(base: &str, url: &str) -> String {
+    if url.starts_with("http://") || url.starts_with("https://") {
+        return url.to_string();
+    }
+    if url.starts_with("//") {
+        return format!("https:{}", url);
+    }
+    if url.starts_with('/') {
+        if let Some(scheme_end) = base.find("://") {
+            let rest = &base[scheme_end + 3..];
+            if let Some(host_end) = rest.find('/') {
+                return format!("{}/{}", &base[..scheme_end + 3 + host_end], url.trim_start_matches('/'));
+            }
+            return format!("{}{}", base.trim_end_matches('/'), url);
+        }
+    }
+    if let Some(last_slash) = base.rfind('/') {
+        if last_slash > base.find("://").map(|i| i + 2).unwrap_or(0) {
+            return format!("{}/{}", &base[..last_slash], url.trim_start_matches('/'));
+        }
+    }
+    format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'))
+}
+
+/// Download an image from a URL to temp_dir and send the path via tx.
+async fn download_image(
+    http_client: &reqwest::Client,
+    image_url: &str,
+    temp_dir: &Path,
+    index: usize,
+    tx: &mpsc::UnboundedSender<PathBuf>,
+) -> Result<(), String> {
+    let url_path = image_url.split('?').next().unwrap_or(image_url);
+    let filename = url_path.rsplit('/').next().unwrap_or("image.jpg");
+
+    let clean_name: String = filename
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+
+    let dest_path = temp_dir.join(format!("{:03}_{}", index + 1, clean_name));
+
+    info!(url = %image_url, dest = %dest_path.display(), "Downloading image");
+
+    let resp = http_client
+        .get(image_url)
+        .header("User-Agent", BROWSER_UA)
+        .header("Referer", "https://kitty-kats.net/")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to start image download: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Image download returned status {}", resp.status()));
+    }
+
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if !content_type.starts_with("image/") {
+        return Err(format!("Response is not an image (Content-Type: {content_type})"));
+    }
+
+    let mut file = tokio::fs::File::create(&dest_path)
+        .await
+        .map_err(|e| format!("Failed to create output file: {e}"))?;
+
+    let mut bytes_written: u64 = 0;
+    let mut stream = resp;
+    while let Some(chunk) = stream
+        .chunk()
+        .await
+        .map_err(|e| format!("Failed to read image chunk: {e}"))?
+    {
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| format!("Failed to write image chunk: {e}"))?;
+        bytes_written += chunk.len() as u64;
+    }
+    file.flush()
+        .await
+        .map_err(|e| format!("Failed to flush image file: {e}"))?;
+
+    if bytes_written == 0 {
+        let _ = tokio::fs::remove_file(&dest_path).await;
+        return Err("Downloaded image is empty".to_string());
+    }
+
+    info!(size = bytes_written, path = %dest_path.display(), "Image download complete");
+
+    let _ = tx.send(dest_path);
+    Ok(())
 }

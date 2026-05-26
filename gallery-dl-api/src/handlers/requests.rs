@@ -274,25 +274,30 @@ pub async fn requeue_request(
 }
 
 /// POST /api/requests/nuke — Purge all media and reset every request to pending.
-/// StashDB profile picture redownloads run in the background so the API responds immediately.
+/// The media purge runs on the async runtime (all I/O yields properly).
+/// StashDB redownload runs on a separate thread to avoid blocking worker threads
+/// with CPU-bound image decoding (load_from_memory, thumbnail, save).
 pub async fn nuke_all(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let count = crate::reset_checker::run_requeue_all(&state.db, &state.config).await;
-
     let db = state.db.clone();
+    let db2 = state.db.clone();
     let config = state.config.clone();
-    let http_client = state.config.http_client.clone();
+
+    tokio::spawn(async move {
+        let _count = crate::reset_checker::run_requeue_all(&db, &config).await;
+    });
+
+    let config2 = state.config.clone();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            crate::reset_checker::redownload_stashdb_images(&db, &config, &http_client).await;
+            crate::reset_checker::redownload_stashdb_images(&db2, &config2, &config2.http_client).await;
         });
     });
 
     Ok(Json(serde_json::json!({
-        "message": "All media purged and requests requeued.",
-        "requeued_count": count,
+        "message": "Nuke started — all media is being purged and requests requeued in the background.",
     })))
 }
 

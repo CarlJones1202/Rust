@@ -39,6 +39,9 @@ fn build_cmd(
         let archive_path = Path::new(abs_temp_str).join("archive.txt");
         cmd.arg("--download-archive").arg(archive_path);
 
+        // Don't download the whole playlist if the URL contains one
+        cmd.arg("--no-playlist");
+
         // Print the final file path after download+merge so we can process it.
         // --no-simulate is required because --print alone suppresses the download.
         cmd.arg("--no-simulate");

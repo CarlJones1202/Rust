@@ -430,17 +430,3 @@ pub async fn gallery_count_for_person(pool: &SqlitePool, person_id: &str) -> Res
     Ok(row.0)
 }
 
-/// Find a person ID by exact case-insensitive name or alias match.
-pub async fn find_person_id_by_name(pool: &SqlitePool, name: &str) -> Result<Option<String>, sqlx::Error> {
-    let row: Option<(String,)> = sqlx::query_as(
-        "SELECT p.id FROM persons p WHERE LOWER(p.name) = LOWER(?)
-         UNION
-         SELECT pa.person_id FROM person_aliases pa WHERE LOWER(pa.alias) = LOWER(?)
-         LIMIT 1"
-    )
-    .bind(name)
-    .bind(name)
-    .fetch_optional(pool)
-    .await?;
-    Ok(row.map(|r| r.0))
-}

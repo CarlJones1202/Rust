@@ -9,9 +9,10 @@ mod services;
 
 use axum::{routing::get, routing::post, routing::patch, routing::delete, Router};
 use axum::http::header;
-use queue::worker::JobSender;
+use queue::worker::{DownloadJob, JobSender};
 use sqlx::SqlitePool;
 use std::path::PathBuf;
+use tokio::sync::mpsc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tracing::info;
@@ -54,29 +55,128 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize database
     let pool = db::init_pool(&config.database_url).await?;
 
-    // Check for CLI flags that run before the worker starts.
-    // These must return early to avoid conflicting with the running server.
+    // Check for CLI flags. `reset` and `requeue-failed` used to run and
+    // exit before the server started; now they all spawn background work
+    // and let the server come up normally.
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a.to_lowercase() == "reset") {
-        info!("Reset flag detected: running full reset of all requests");
-        reset_checker::run_reset_all(&pool, &config).await;
-        return Ok(());
+        info!("Reset flag detected: spawning full reset in background, server will start normally");
+        let bg_pool = pool.clone();
+        let bg_config = config.clone();
+        tokio::spawn(async move {
+            reset_checker::run_reset_all(&bg_pool, &bg_config).await;
+        });
     }
     if args.iter().any(|a| a.to_lowercase() == "requeue-failed") {
-        reset_checker::run_requeue_failed(&pool).await;
-        return Ok(());
-    } else if args.iter().any(|a| a.to_lowercase() == "requeue-all") {
-        reset_checker::run_requeue_all(&pool, &config).await;
-        reset_checker::redownload_stashdb_images(&pool, &config, &config.http_client).await;
-        return Ok(());
+        info!("Requeue-failed flag detected: spawning requeue in background, server will start normally");
+        let bg_pool = pool.clone();
+        tokio::spawn(async move {
+            reset_checker::run_requeue_failed(&bg_pool).await;
+        });
+    }
+    if args.iter().any(|a| a.to_lowercase() == "requeue-all") {
+        info!("Requeue-all flag detected: spawning background purge/redownload, server will start normally");
+        let bg_pool = pool.clone();
+        let bg_config = config.clone();
+        tokio::spawn(async move {
+            reset_checker::run_requeue_all(&bg_pool, &bg_config).await;
+        });
+        let bg_pool2 = pool.clone();
+        let bg_config2 = config.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                reset_checker::redownload_stashdb_images(&bg_pool2, &bg_config2, &bg_config2.http_client).await;
+            });
+        });
     }
 
-    // Start download queue worker
-    let job_sender = queue::worker::spawn_worker(pool.clone(), config.clone());
+    // Track which hosts are known to be down
+    let site_health = services::site_checker::SiteHealth::new();
+
+    // On startup, probe hosts that have "processing" jobs.
+    // If a host is unreachable, mark it down and reset its jobs to "pending"
+    // so they don't get re-queued until the host recovers.
+    {
+        let http_client = &config.http_client;
+        let extract_host = services::site_checker::extract_host;
+        match models::request::DownloadRequest::list_processing(&pool).await {
+            Ok(processing_jobs) if !processing_jobs.is_empty() => {
+                let mut hosts: Vec<String> = processing_jobs.iter()
+                    .filter_map(|r| extract_host(&r.url))
+                    .collect();
+                hosts.sort();
+                hosts.dedup();
+                info!(host_count = hosts.len(), "Probing hosts from processing jobs on startup");
+                for host in &hosts {
+                    let url = format!("https://{}", host);
+                    match http_client.get(&url).send().await {
+                        Ok(resp) if resp.status().is_success() => {
+                            info!(host = %host, "Host is up on startup");
+                        }
+                        _ => {
+                            info!(host = %host, "Host is down on startup, resetting processing jobs to pending");
+                            site_health.mark_down(host).await;
+                            for req in &processing_jobs {
+                                if extract_host(&req.url).as_deref() == Some(host.as_str()) {
+                                    let _ = models::request::DownloadRequest::update_status(
+                                        &pool, &req.id, "pending", None,
+                                    ).await;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Start download queue worker with site health tracking
+    let job_sender = queue::worker::spawn_worker(pool.clone(), config.clone(), site_health.clone());
     info!("Download queue worker started");
 
-    // Recover unfinished jobs
-    queue::worker::recover_pending_jobs(&pool, job_sender.clone()).await;
+    // Channel for host-recovery notifications from the periodic checker
+    let (host_up_tx, mut host_up_rx) = mpsc::unbounded_channel::<String>();
+
+    // Listen for recovered hosts and re-queue their unfinished jobs
+    let recovery_pool = pool.clone();
+    let recovery_sender = job_sender.clone();
+    tokio::spawn(async move {
+        use crate::services::site_checker::extract_host;
+        while let Some(host) = host_up_rx.recv().await {
+            info!(host = %host, "Host recovered, re-queueing unfinished jobs");
+            match crate::models::request::DownloadRequest::list_unfinished(&recovery_pool).await {
+                Ok(requests) => {
+                    let mut count = 0u32;
+                    for req in &requests {
+                        if let Some(req_host) = extract_host(&req.url) {
+                            if req_host == host {
+                                let _ = recovery_sender.send(DownloadJob {
+                                    request_id: req.id.clone(),
+                                    url: req.url.clone(),
+                                    title: req.title.clone(),
+                                });
+                                count += 1;
+                            }
+                        }
+                    }
+                    if count > 0 {
+                        info!(host = %host, count = count, "Re-queued jobs for recovered host");
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "Failed to list unfinished jobs for host recovery");
+                }
+            }
+        }
+    });
+
+    // Spawn background checker for down hosts
+    services::site_checker::spawn_periodic_checker(site_health.clone(), config.http_client.clone(), host_up_tx);
+
+    // Recover unfinished jobs (skips hosts already marked down)
+    queue::worker::recover_pending_jobs(&pool, job_sender.clone(), &site_health).await;
 
     // Build application state
     let state = AppState {

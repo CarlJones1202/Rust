@@ -364,12 +364,9 @@ pub async fn relink_person(
     let mut linked = 0u64;
 
     for (req_id, url) in &requests {
-        let Some(candidate_name) = crate::services::title_guesser::guess_person_name_from_url(url)
-        else {
-            continue;
-        };
+        let normalized = crate::services::auto_link::normalize_for_matching(url);
 
-        if !name_variants.iter().any(|v| v.eq_ignore_ascii_case(&candidate_name)) {
+        if !name_variants.iter().any(|v| normalized.contains(&v.to_lowercase())) {
             continue;
         }
 

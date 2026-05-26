@@ -1,5 +1,5 @@
 # Setup Environment Script
-# This script installs Python, gallery-dl, VS Build Tools, and Rust.
+# This script installs Python, Node.js, gallery-dl, VS Build Tools, and Rust.
 
 # Run as Administrator check
 if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -27,22 +27,58 @@ function Write-Host-Warning {
 # 1. Install Python
 Write-Host-Info "Checking for Python..."
 if (!(Get-Command python -ErrorAction SilentlyContinue)) {
-    Write-Host-Info "Python not found. Installing latest version via winget..."
-    winget install -e --id Python.Python.3 --source winget --accept-package-agreements --accept-source-agreements
+    Write-Host-Info "Python not found. Attempting install via winget..."
+    winget install -e --id Python.Python.3.12 --source winget --accept-package-agreements --accept-source-agreements
     
-    # Refresh PATH for the current session
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
     
     if (!(Get-Command python -ErrorAction SilentlyContinue)) {
-        Write-Host-Warning "Python installed but not found in PATH. You may need to restart your terminal."
+        Write-Host-Warning "winget install failed. Falling back to direct download from python.org..."
+        $pythonUrl = "https://www.python.org/ftp/python/3.12.4/python-3.12.4-amd64.exe"
+        $installerPath = Join-Path $env:TEMP "python-3.12.4-amd64.exe"
+        Invoke-WebRequest -Uri $pythonUrl -OutFile $installerPath
+        Start-Process -FilePath $installerPath -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1" -Wait
+        
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    }
+    
+    if (!(Get-Command python -ErrorAction SilentlyContinue)) {
+        Write-Host-Warning "Python installation completed but not found in PATH. You may need to restart your terminal."
     } else {
-        Write-Host-Success "Python installed successfully."
+        Write-Host-Success "Python installed successfully: $(python --version)"
     }
 } else {
     Write-Host-Success "Python is already installed: $(python --version)"
 }
 
-# 2. Install gallery-dl and yt-dlp
+# 2. Install Node.js
+Write-Host-Info "Checking for Node.js..."
+if (!(Get-Command node -ErrorAction SilentlyContinue)) {
+    Write-Host-Info "Node.js not found. Attempting install via winget..."
+    winget install -e --id OpenJS.NodeJS.LTS --source winget --accept-package-agreements --accept-source-agreements
+
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+
+    if (!(Get-Command node -ErrorAction SilentlyContinue)) {
+        Write-Host-Warning "winget install failed. Falling back to direct download from nodejs.org..."
+        $nodeUrl = "https://nodejs.org/dist/v20.18.1/node-v20.18.1-x64.msi"
+        $installerPath = Join-Path $env:TEMP "node-v20.18.1-x64.msi"
+        Invoke-WebRequest -Uri $nodeUrl -OutFile $installerPath
+        Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$installerPath`" /quiet ADDLOCAL=ALL" -Wait
+
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    }
+
+    if (!(Get-Command node -ErrorAction SilentlyContinue)) {
+        Write-Host-Warning "Node.js installation completed but not found in PATH. You may need to restart your terminal."
+    } else {
+        Write-Host-Success "Node.js installed successfully: $(node --version)"
+    }
+} else {
+    Write-Host-Success "Node.js is already installed: $(node --version)"
+}
+
+# 3. Install gallery-dl and yt-dlp
 Write-Host-Info "Installing gallery-dl and yt-dlp via pip..."
 python -m pip install -U gallery-dl yt-dlp
 
@@ -52,7 +88,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host-Warning "Failed to install gallery-dl or yt-dlp. Ensure pip is updated."
 }
 
-# 3. Install FFmpeg
+# 4. Install FFmpeg
 Write-Host-Info "Checking for FFmpeg..."
 if (!(Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
     Write-Host-Info "FFmpeg not found. Installing via winget..."
@@ -67,7 +103,7 @@ if (!(Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
     Write-Host-Success "FFmpeg is already installed."
 }
 
-# 3b. Add FFmpeg to PATH
+# 4b. Add FFmpeg to PATH
 Write-Host-Info "Adding FFmpeg to User PATH..."
 $wingetPackages = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages"
 $ffmpegDir = if (Test-Path $wingetPackages) {
@@ -100,7 +136,7 @@ if ($ffmpegDir) {
     Write-Host-Warning "Could not locate FFmpeg winget package directory."
 }
 
-# 4. Add gallery-dl to PATH
+# 5. Add gallery-dl to PATH
 Write-Host-Info "Configuring environment variables for gallery-dl..."
 $pathsToAdd = @()
 
@@ -139,7 +175,7 @@ if ($pathsToAdd.Count -eq 0) {
     }
 }
 
-# 5. Install Visual Studio Build Tools (C++ Workload)
+# 6. Install Visual Studio Build Tools (C++ Workload)
 Write-Host-Info "Checking for Visual Studio Build Tools (C++ Workload)..."
 $vswherePath = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 $hasMsvc = $false
@@ -163,7 +199,7 @@ if (!$hasMsvc) {
     Write-Host-Success "Visual Studio C++ Build Tools are already installed."
 }
 
-# 6. Install Rust
+# 7. Install Rust
 Write-Host-Info "Checking for Rust..."
 if (!(Get-Command rustc -ErrorAction SilentlyContinue)) {
     Write-Host-Info "Rust not found. Downloading rustup-init.exe..."

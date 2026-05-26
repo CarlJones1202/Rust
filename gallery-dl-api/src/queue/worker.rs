@@ -7,11 +7,12 @@ use crate::services::auto_link;
 use crate::services::custom_downloader;
 use crate::services::downloader;
 use crate::services::file_processor::{self, MediaType};
+use crate::services::site_checker::{self, SiteHealth};
 use sqlx::SqlitePool;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Semaphore};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// A job submitted to the download queue.
 #[derive(Debug, Clone)]
@@ -53,30 +54,49 @@ fn classify_job(url: &str) -> JobBucket {
 pub fn spawn_worker(
     pool: SqlitePool,
     config: Config,
+    site_health: SiteHealth,
 ) -> JobSender {
     let (tx, rx) = mpsc::unbounded_channel::<DownloadJob>();
 
-    tokio::spawn(run_worker(rx, pool, config));
+    tokio::spawn(run_worker(rx, pool, config, site_health));
 
     tx
 }
 
 /// Query the database for unfinished jobs and re-queue them.
-pub async fn recover_pending_jobs(pool: &SqlitePool, tx: JobSender) {
+/// Jobs whose host is known-down are skipped (left in their current DB state)
+/// so they don't clog the queue. The periodic checker will re-queue them
+/// when the host recovers.
+pub async fn recover_pending_jobs(pool: &SqlitePool, tx: JobSender, site_health: &SiteHealth) {
     match DownloadRequest::list_unfinished(pool).await {
         Ok(requests) => {
             if requests.is_empty() {
                 return;
             }
-            info!(count = requests.len(), "Recovering unfinished download jobs");
-            for req in requests {
+            let mut recovered = 0u32;
+            let mut skipped = 0u32;
+            for req in &requests {
+                let host = site_checker::extract_host(&req.url);
+                if let Some(ref host) = host {
+                    if site_health.is_down(host).await {
+                        info!(
+                            host = %host,
+                            request_id = %req.id,
+                            "Skipping recovery for down-host job"
+                        );
+                        skipped += 1;
+                        continue;
+                    }
+                }
                 info!(request_id = %req.id, url = %req.url, "Re-queueing job");
                 let _ = tx.send(DownloadJob {
-                    request_id: req.id,
-                    url: req.url,
-                    title: req.title,
+                    request_id: req.id.clone(),
+                    url: req.url.clone(),
+                    title: req.title.clone(),
                 });
+                recovered += 1;
             }
+            info!(recovered = recovered, skipped = skipped, "Finished recovering jobs");
         }
         Err(e) => {
             error!(error = %e, "Failed to list unfinished jobs for recovery");
@@ -89,6 +109,7 @@ async fn run_worker(
     mut rx: mpsc::UnboundedReceiver<DownloadJob>,
     pool: SqlitePool,
     config: Config,
+    site_health: SiteHealth,
 ) {
     let (image_tx, image_rx) = mpsc::unbounded_channel::<DownloadJob>();
     let (video_tx, video_rx) = mpsc::unbounded_channel::<DownloadJob>();
@@ -100,6 +121,7 @@ async fn run_worker(
         config.clone(),
         config.max_concurrent_downloads,
         "Image",
+        site_health.clone(),
     ));
     tokio::spawn(bucket_worker(
         video_rx,
@@ -107,6 +129,7 @@ async fn run_worker(
         config.clone(),
         config.max_concurrent_video_downloads,
         "Video",
+        site_health.clone(),
     ));
 
     info!(
@@ -137,6 +160,7 @@ async fn bucket_worker(
     config: Config,
     concurrency: usize,
     name: &'static str,
+    site_health: SiteHealth,
 ) {
     let semaphore = Arc::new(Semaphore::new(concurrency));
 
@@ -147,6 +171,20 @@ async fn bucket_worker(
     );
 
     while let Some(job) = rx.recv().await {
+        // If the host is known-down, skip the job entirely.
+        // The periodic checker will mark it up when it recovers,
+        // and pending jobs can be re-queued via the API or restart.
+        if let Some(host) = site_checker::extract_host(&job.url) {
+            if site_health.is_down(&host).await {
+                warn!(
+                    host = %host,
+                    request_id = %job.request_id,
+                    "Skipping job for down host (will retry on restart or manual re-queue)"
+                );
+                continue;
+            }
+        }
+
         let permit = semaphore.clone().acquire_owned().await;
         if permit.is_err() {
             error!(bucket = name, "Bucket semaphore closed unexpectedly");
