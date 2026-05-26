@@ -234,6 +234,30 @@ export default function GalleryDetailPage() {
               <Heart size={24} style={images[lightboxIndex]?.is_favorite ? { fill: '#ff3b3b', color: '#ff3b3b' } : {}} />
             </button>,
             <button
+              key="delete-image"
+              type="button"
+              className="yarl__button"
+              title="Delete Image"
+              onClick={async () => {
+                const img = images[lightboxIndex];
+                if (!img) return;
+                if (!confirm('Delete this image? This will remove the file and database record.')) return;
+                try {
+                  await (await import('../api')).deleteImage(img.id);
+                  // Remove from local gallery state
+                  setGallery((prev) => ({
+                    ...prev,
+                    images: prev.images.filter(d => d.id !== img.id),
+                  }));
+                  setLightboxIndex(-1);
+                } catch (err) {
+                  alert('Failed to delete image: ' + err.message);
+                }
+              }}
+            >
+              Delete
+            </button>,
+            <button
               key="metadata-toggle"
               type="button"
               className="yarl__button"

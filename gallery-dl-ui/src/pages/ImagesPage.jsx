@@ -19,6 +19,8 @@ export default function ImagesPage() {
   const [loading, setLoading] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState(-1);
   const [showMetadata, setShowMetadata] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
 
   const handlePageChange = (newPage) => {
     const params = new URLSearchParams(searchParams);
@@ -39,6 +41,37 @@ export default function ImagesPage() {
   };
 
   const images = data?.data || [];
+
+  const toggleSelect = (item) => {
+    setSelectedIds((prev) => {
+      if (!prev) return [item.id];
+      if (prev.includes(item.id)) return prev.filter(id => id !== item.id);
+      return [...prev, item.id];
+    });
+  };
+
+  const clearSelection = () => setSelectedIds([]);
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!confirm(`Delete ${selectedIds.length} image(s)? This will remove the files and database records.`)) return;
+    try {
+      const api = await import('../api');
+      // delete sequentially to keep server load reasonable and show any error
+      for (const id of selectedIds) {
+        await api.deleteImage(id);
+      }
+      // remove from local state
+      setData((prev) => ({
+        ...prev,
+        data: prev.data.filter(d => !selectedIds.includes(d.id)),
+      }));
+      clearSelection();
+      setSelectionMode(false);
+    } catch (err) {
+      alert('Failed to delete selected images: ' + err.message);
+    }
+  };
 
   const handleFavorite = async (img) => {
     try {
@@ -130,6 +163,22 @@ export default function ImagesPage() {
           <Heart size={16} className={favoritesFilter ? 'favorited' : ''} />
           {favoritesFilter ? 'Showing Favorites' : 'Show Favorites'}
         </button>
+        <div style={{ marginLeft: 8 }}>
+          {!selectionMode ? (
+            <button className="btn btn-sm btn-ghost" onClick={() => { setSelectionMode(true); }}>
+              Select
+            </button>
+          ) : (
+            <>
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete} disabled={selectedIds.length === 0}>
+                Delete ({selectedIds.length})
+              </button>
+              <button className="btn btn-sm btn-ghost" onClick={() => { setSelectionMode(false); clearSelection(); }} style={{ marginLeft: 8 }}>
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {images.length === 0 ? (
@@ -158,7 +207,10 @@ export default function ImagesPage() {
                 </div>
               </>
             )}
-          />
+            selectionMode={selectionMode}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            />
           {data?.pagination && (
             <Pagination
               page={data.pagination.page}
@@ -192,6 +244,30 @@ export default function ImagesPage() {
               }}
             >
               <Heart size={24} style={images[lightboxIndex]?.is_favorite ? { fill: '#ff3b3b', color: '#ff3b3b' } : {}} />
+            </button>,
+            <button
+              key="delete-image"
+              type="button"
+              className="yarl__button"
+              title="Delete Image"
+              onClick={async () => {
+                const img = images[lightboxIndex];
+                if (!img) return;
+                if (!confirm('Delete this image? This will remove the file and database record.')) return;
+                try {
+                  await (await import('../api')).deleteImage(img.id);
+                  // Remove from local state
+                  setData((prev) => ({
+                    ...prev,
+                    data: prev.data.filter(d => d.id !== img.id),
+                  }));
+                  setLightboxIndex(-1);
+                } catch (err) {
+                  alert('Failed to delete image: ' + err.message);
+                }
+              }}
+            >
+              Delete
             </button>,
             <button
               key="metadata-toggle"

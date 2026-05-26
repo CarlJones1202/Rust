@@ -1,7 +1,16 @@
 import { Heart } from 'lucide-react';
 import './MediaGrid.css';
 
-export default function MediaGrid({ items, onItemClick, renderItem, onFavorite, layout = 'justified' }) {
+export default function MediaGrid({
+  items,
+  onItemClick,
+  renderItem,
+  onFavorite,
+  layout = 'justified',
+  selectionMode = false,
+  selectedIds = [],
+  onToggleSelect,
+}) {
   return (
     <div className={`media-grid layout-${layout}`}>
       {items.map((item, index) => {
@@ -17,14 +26,32 @@ export default function MediaGrid({ items, onItemClick, renderItem, onFavorite, 
           flexBasis: `${aspectRatio * 200}px`, // 200px is the target height
         } : {};
 
+        const isSelected = selectedIds && selectedIds.includes(item.id);
+
         return (
           <div
             key={item.id || index}
-            className="media-grid-item"
+            className={`media-grid-item ${isSelected ? 'selected' : ''}`}
             style={style}
-            onClick={() => onItemClick?.(item, index)}
+            onClick={() => {
+              if (selectionMode) {
+                onToggleSelect?.(item);
+              } else {
+                onItemClick?.(item, index);
+              }
+            }}
           >
             {renderItem(item, index)}
+            {selectionMode && (
+              <label className="select-overlay" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={!!isSelected}
+                  onChange={() => onToggleSelect?.(item)}
+                />
+                <span className="checkmark" />
+              </label>
+            )}
             {onFavorite && (
               <button
                 className={`favorite-btn ${item.is_favorite ? 'favorited' : ''}`}

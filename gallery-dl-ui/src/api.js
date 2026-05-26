@@ -93,6 +93,12 @@ export function toggleFavorite(id, isFavorite) {
   });
 }
 
+export function deleteImage(id) {
+  return request(`/api/images/${id}`, {
+    method: 'DELETE',
+  });
+}
+
 // --- Videos ---
 export function listVideos(page = 1, perPage = 50) {
   return request(`/api/videos?page=${page}&per_page=${perPage}`);

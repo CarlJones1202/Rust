@@ -101,6 +101,29 @@ pub async fn process_single_file(
         return Ok(None);
     }
 
+    // Quick detection for cases where the downloader saved an HTML error page
+    // (hotlink protection / error page) instead of an image. Read a small
+    // header from the file and look for HTML markers or known provider messages.
+    if media_type == MediaType::Image {
+        if let Ok(mut f) = std::fs::File::open(file_path) {
+            use std::io::Read;
+            let mut buf = [0u8; 512];
+            if let Ok(n) = f.read(&mut buf) {
+                let sample = String::from_utf8_lossy(&buf[..n]).to_lowercase();
+                let is_html = sample.contains("<html")
+                    || sample.contains("<!doctype")
+                    || sample.contains("hotlinking is disabled")
+                    || sample.contains("imagetwist")
+                    || sample.contains("content-type: text/html");
+                if is_html {
+                    // Remove the problematic file to avoid it entering storage
+                    let _ = std::fs::remove_file(file_path);
+                    return Err(format!("Downloaded file appears to be an HTML error page (hotlink block). path={}", file_path.display()));
+                }
+            }
+        }
+    }
+
     // Compute hash
     let hash = compute_md5(file_path).await?;
 

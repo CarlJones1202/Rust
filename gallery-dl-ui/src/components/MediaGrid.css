@@ -59,6 +59,29 @@
   pointer-events: none;
 }
 
+.media-grid-item.selected {
+  outline: 3px solid rgba(0, 123, 255, 0.25);
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.08) inset;
+}
+
+.select-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+}
+
+.select-overlay input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+.select-overlay .checkmark {
+  display: none; /* visual placeholder if needed later */
+}
+
 .media-grid-item:hover .overlay {
   opacity: 1;
 }

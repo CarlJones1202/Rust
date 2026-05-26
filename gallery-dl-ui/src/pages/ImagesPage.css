@@ -48,3 +48,14 @@
   color: var(--text-primary);
   background: var(--bg-tertiary);
 }
+
+.btn-danger {
+  background: #ff3b3b;
+  color: #fff;
+  border-color: transparent;
+}
+
+.btn-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

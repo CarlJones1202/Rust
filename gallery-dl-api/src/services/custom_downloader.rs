@@ -714,32 +714,54 @@ async fn download_image(
         return Err(format!("Image download returned status {}", resp.status()));
     }
 
-    let content_type = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+    let content_type = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
 
-    if !content_type.starts_with("image/") {
-        return Err(format!("Response is not an image (Content-Type: {content_type})"));
-    }
-
+    // Stream with a light preflight on the first chunk to detect HTML error pages
+    // (hotlink protection) even when servers lie about content-type. If we detect
+    // HTML or non-image content, attempt a curl fallback which often bypasses
+    // hosting restrictions.
+    let mut stream_resp = resp;
     let mut file = tokio::fs::File::create(&dest_path)
         .await
         .map_err(|e| format!("Failed to create output file: {e}"))?;
 
     let mut bytes_written: u64 = 0;
-    let mut stream = resp;
-    while let Some(chunk) = stream
-        .chunk()
-        .await
-        .map_err(|e| format!("Failed to read image chunk: {e}"))?
-    {
+    let mut first_chunk = true;
+    while let Some(chunk) = stream_resp.chunk().await.map_err(|e| format!("Failed to read image chunk: {e}"))? {
+        if first_chunk {
+            first_chunk = false;
+            // Check for HTML markers in the initial bytes
+            let sample = &chunk[..std::cmp::min(512, chunk.len())];
+            let sample_lc = String::from_utf8_lossy(sample).to_lowercase();
+            let looks_like_html = sample_lc.contains("<html")
+                || sample_lc.contains("<!doctype")
+                || sample_lc.contains("hotlink")
+                || sample_lc.contains("imagetwist")
+                || sample_lc.contains("content-type: text/html");
+
+            if !content_type.starts_with("image/") || looks_like_html {
+                // Clean up the partial file
+                let _ = tokio::fs::remove_file(&dest_path).await;
+                // Try curl fallback
+                match try_curl_image_fallback(image_url, &dest_path).await {
+                    Ok(()) => {
+                        info!(path = %dest_path.display(), "Image download complete (curl fallback)");
+                        let _ = tx.send(dest_path);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        return Err(format!("Response is not an image (Content-Type: {content_type}), fallback failed: {e}"));
+                    }
+                }
+            }
+        }
+
         file.write_all(&chunk)
             .await
             .map_err(|e| format!("Failed to write image chunk: {e}"))?;
         bytes_written += chunk.len() as u64;
     }
+
     file.flush()
         .await
         .map_err(|e| format!("Failed to flush image file: {e}"))?;
@@ -753,4 +775,60 @@ async fn download_image(
 
     let _ = tx.send(dest_path);
     Ok(())
+}
+
+/// Attempt to download the image via system curl as a fallback and validate its
+/// basic image signature. Returns Err if curl isn't available or result isn't an image.
+async fn try_curl_image_fallback(image_url: &str, dest_path: &Path) -> Result<(), String> {
+    // Use curl to write directly to the path
+    match tokio::process::Command::new("curl")
+        .arg("-sSL")
+        .arg("-A")
+        .arg(BROWSER_UA)
+        .arg("-H")
+        .arg("Referer: https://kitty-kats.net/")
+        .arg("-o")
+        .arg(dest_path)
+        .arg(image_url)
+        .status()
+        .await
+    {
+        Ok(status) if status.success() => {
+            // Quick magic-byte check to ensure it's an image
+            match std::fs::File::open(dest_path) {
+                Ok(mut f) => {
+                    use std::io::Read;
+                    let mut buf = [0u8; 8];
+                    if let Ok(n) = f.read(&mut buf) {
+                        if looks_like_image_bytes(&buf[..n]) {
+                            return Ok(());
+                        }
+                    }
+                    let _ = std::fs::remove_file(dest_path);
+                    Err("Curl fallback returned non-image content".to_string())
+                }
+                Err(e) => Err(format!("Curl saved file but it couldn't be opened: {e}")),
+            }
+        }
+        Ok(status) => Err(format!("curl exited with status {status}")),
+        Err(e) => Err(format!("Failed to spawn curl: {e}")),
+    }
+}
+
+/// Basic magic-byte checks for common image formats.
+fn looks_like_image_bytes(buf: &[u8]) -> bool {
+    if buf.len() >= 3 && buf[0] == 0xFF && buf[1] == 0xD8 && buf[2] == 0xFF {
+        // JPEG
+        return true;
+    }
+    if buf.len() >= 8 && buf[0] == 0x89 && buf[1] == b'P' && buf[2] == b'N' && buf[3] == b'G' {
+        return true;
+    }
+    if buf.len() >= 6 && &buf[..6] == b"GIF87a" || buf.len() >= 6 && &buf[..6] == b"GIF89a" {
+        return true;
+    }
+    if buf.len() >= 4 && &buf[..4] == b"RIFF" && buf.len() >= 12 && &buf[8..12] == b"WEBP" {
+        return true;
+    }
+    false
 }
