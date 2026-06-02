@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Image, Edit2, Check, X, Users, Plus, User, Info, Heart } from 'lucide-react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Image, Edit2, Check, X, Users, Plus, User, Info, Heart, Trash2 } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import Captions from 'yet-another-react-lightbox/plugins/captions';
 import Slideshow from 'yet-another-react-lightbox/plugins/slideshow';
 import 'yet-another-react-lightbox/styles.css';
 import 'yet-another-react-lightbox/plugins/captions.css';
-import { getGallery, imageUrl, thumbnailUrl, updateGallery, toggleFavorite } from '../api';
+import { getGallery, imageUrl, thumbnailUrl, updateGallery, toggleFavorite, deleteGallery } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import StatusBadge from '../components/StatusBadge';
 import PersonLinkModal from '../components/PersonLinkModal';
@@ -14,6 +14,7 @@ import './GalleryDetailPage.css';
 
 export default function GalleryDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [gallery, setGallery] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState(-1);
@@ -41,6 +42,16 @@ export default function GalleryDetailPage() {
       setIsEditing(false);
     } catch (err) {
       alert(`Failed to update title: ${err.message}`);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm('Delete this gallery and all of its images? This cannot be undone.')) return;
+    try {
+      await deleteGallery(id);
+      navigate('/galleries');
+    } catch (err) {
+      alert(`Failed to delete gallery: ${err.message}`);
     }
   };
 
@@ -146,6 +157,9 @@ export default function GalleryDetailPage() {
             <h2>{gallery.title || `Gallery ${gallery.id.slice(0, 8)}`}</h2>
             <button className="btn btn-ghost btn-icon" onClick={() => setIsEditing(true)}>
               <Edit2 size={16} />
+            </button>
+            <button className="btn btn-ghost btn-icon" onClick={handleDelete} title="Delete gallery">
+              <Trash2 size={16} />
             </button>
           </div>
         )}

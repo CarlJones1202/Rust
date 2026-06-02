@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Image, Info, Heart } from 'lucide-react';
+import { Image, Info, Heart, Search } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import Captions from 'yet-another-react-lightbox/plugins/captions';
 import Slideshow from 'yet-another-react-lightbox/plugins/slideshow';
@@ -21,6 +21,7 @@ export default function ImagesPage() {
   const [showMetadata, setShowMetadata] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const handlePageChange = (newPage) => {
     const params = new URLSearchParams(searchParams);
@@ -100,13 +101,17 @@ export default function ImagesPage() {
     return () => window.removeEventListener('keydown', handler);
   }, [lightboxIndex, images, handleFavorite]);
 
-  useEffect(() => {
+  const fetchImages = useCallback(() => {
     setLoading(true);
-    listImages(page, 48, favoritesFilter)
+    listImages(page, 48, favoritesFilter, searchQuery)
       .then(setData)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [page, favoritesFilter]);
+  }, [page, favoritesFilter, searchQuery]);
+
+  useEffect(() => {
+    fetchImages();
+  }, [fetchImages]);
 
   if (loading && !data) {
     return <div className="empty-state"><p>Loading...</p></div>;
@@ -156,6 +161,15 @@ export default function ImagesPage() {
       </div>
 
       <div className="page-toolbar">
+        <div className="search-bar">
+          <Search size={16} />
+          <input
+            type="text"
+            placeholder="Search images..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
         <button
           className={`btn btn-sm ${favoritesFilter ? 'btn-primary' : 'btn-ghost'}`}
           onClick={toggleFavoritesFilter}

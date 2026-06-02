@@ -7,12 +7,13 @@ mod queue;
 mod reset_checker;
 mod services;
 
-use axum::{routing::get, routing::post, routing::patch, routing::delete, Router};
+use axum::{routing::get, routing::post, routing::put, routing::patch, routing::delete, Router};
 
 use axum::http::header;
-use queue::worker::{DownloadJob, JobSender};
+use queue::worker::{ConcurrencyController, DownloadJob, JobSender};
 use sqlx::SqlitePool;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
@@ -25,6 +26,8 @@ pub struct AppState {
     pub job_sender: JobSender,
     pub config: config::Config,
     pub site_health: services::site_checker::SiteHealth,
+    pub image_concurrency: Arc<ConcurrencyController>,
+    pub video_concurrency: Arc<ConcurrencyController>,
 }
 
 #[tokio::main]
@@ -195,12 +198,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Runtime-adjustable concurrency limits for image and video downloads
+    let image_concurrency = Arc::new(ConcurrencyController::new(config.max_concurrent_downloads));
+    let video_concurrency = Arc::new(ConcurrencyController::new(config.max_concurrent_video_downloads));
+
     // Start download queue worker with site health tracking
     let job_sender = queue::worker::spawn_worker(
         pool.clone(),
         config.clone(),
         site_health.clone(),
         config.http_client.clone(),
+        image_concurrency.clone(),
+        video_concurrency.clone(),
     );
     info!("Download queue worker started");
 
@@ -269,6 +278,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         job_sender,
         config: config.clone(),
         site_health,
+        image_concurrency,
+        video_concurrency,
     };
 
     // Build router
@@ -316,6 +327,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/admin/hosts/{host}/check", post(handlers::admin::check_host))
         .route("/api/admin/hosts/{host}/mark-down", post(handlers::admin::mark_host_down))
         .route("/api/admin/regather-stashdb", post(handlers::admin::regather_stashdb))
+        .route("/api/admin/config", get(handlers::admin::get_config))
+        .route("/api/admin/config", put(handlers::admin::update_config))
         // Static file serving for media
         .nest_service(
             "/media/images",

@@ -80,36 +80,79 @@ impl Image {
         .await
     }
 
-    /// List images with pagination, including gallery title.
+    /// List images with pagination, including gallery title, optionally filtered by search query.
     pub async fn list(
         pool: &SqlitePool,
         limit: i64,
         offset: i64,
         favorites_only: bool,
+        search_query: Option<&str>,
     ) -> Result<Vec<ImageWithGallery>, sqlx::Error> {
-        let query = if favorites_only {
-            "SELECT i.*, g.title as gallery_title FROM images i LEFT JOIN galleries g ON i.gallery_id = g.id WHERE i.is_favorite = 1 ORDER BY i.created_at DESC LIMIT ? OFFSET ?"
-        } else {
-            "SELECT i.*, g.title as gallery_title FROM images i LEFT JOIN galleries g ON i.gallery_id = g.id ORDER BY i.created_at DESC LIMIT ? OFFSET ?"
+        let (sql, has_search): (&str, bool) = match (favorites_only, search_query) {
+            (true, Some(_)) => (
+                "SELECT i.*, g.title as gallery_title FROM images i LEFT JOIN galleries g ON i.gallery_id = g.id WHERE i.is_favorite = 1 AND (i.original_filename LIKE ?3 OR g.title LIKE ?3) ORDER BY i.created_at DESC LIMIT ?1 OFFSET ?2",
+                true,
+            ),
+            (true, None) => (
+                "SELECT i.*, g.title as gallery_title FROM images i LEFT JOIN galleries g ON i.gallery_id = g.id WHERE i.is_favorite = 1 ORDER BY i.created_at DESC LIMIT ?1 OFFSET ?2",
+                false,
+            ),
+            (false, Some(_)) => (
+                "SELECT i.*, g.title as gallery_title FROM images i LEFT JOIN galleries g ON i.gallery_id = g.id WHERE (i.original_filename LIKE ?3 OR g.title LIKE ?3) ORDER BY i.created_at DESC LIMIT ?1 OFFSET ?2",
+                true,
+            ),
+            (false, None) => (
+                "SELECT i.*, g.title as gallery_title FROM images i LEFT JOIN galleries g ON i.gallery_id = g.id ORDER BY i.created_at DESC LIMIT ?1 OFFSET ?2",
+                false,
+            ),
         };
-        sqlx::query_as::<_, ImageWithGallery>(query)
+
+        let mut q = sqlx::query_as::<_, ImageWithGallery>(sql)
             .bind(limit)
-            .bind(offset)
-            .fetch_all(pool)
-            .await
+            .bind(offset);
+        if has_search {
+            let pattern = format!("%{}%", search_query.unwrap());
+            q = q.bind(pattern);
+        }
+        q.fetch_all(pool).await
     }
 
-    /// Count total images.
-    pub async fn count(pool: &SqlitePool, favorites_only: bool) -> Result<i64, sqlx::Error> {
-        let query = if favorites_only {
-            "SELECT COUNT(*) FROM images WHERE is_favorite = 1"
-        } else {
-            "SELECT COUNT(*) FROM images"
-        };
-        let row: (i64,) = sqlx::query_as(query)
-            .fetch_one(pool)
-            .await?;
-        Ok(row.0)
+    /// Count total images, optionally filtered by search query.
+    pub async fn count(pool: &SqlitePool, favorites_only: bool, search_query: Option<&str>) -> Result<i64, sqlx::Error> {
+        match (favorites_only, search_query) {
+            (true, Some(q)) => {
+                let pattern = format!("%{}%", q);
+                let row: (i64,) = sqlx::query_as(
+                    "SELECT COUNT(*) FROM images i LEFT JOIN galleries g ON i.gallery_id = g.id WHERE i.is_favorite = 1 AND (i.original_filename LIKE ?1 OR g.title LIKE ?1)"
+                )
+                .bind(&pattern)
+                .fetch_one(pool)
+                .await?;
+                Ok(row.0)
+            }
+            (true, None) => {
+                let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM images WHERE is_favorite = 1")
+                    .fetch_one(pool)
+                    .await?;
+                Ok(row.0)
+            }
+            (false, Some(q)) => {
+                let pattern = format!("%{}%", q);
+                let row: (i64,) = sqlx::query_as(
+                    "SELECT COUNT(*) FROM images i LEFT JOIN galleries g ON i.gallery_id = g.id WHERE i.original_filename LIKE ?1 OR g.title LIKE ?1"
+                )
+                .bind(&pattern)
+                .fetch_one(pool)
+                .await?;
+                Ok(row.0)
+            }
+            (false, None) => {
+                let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM images")
+                    .fetch_one(pool)
+                    .await?;
+                Ok(row.0)
+            }
+        }
     }
 
     /// Set favorite status for an image.

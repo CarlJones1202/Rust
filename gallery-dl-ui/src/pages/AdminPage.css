@@ -160,3 +160,46 @@
   color: var(--text-primary);
   background: transparent;
 }
+
+/* ===== Config Form ===== */
+.config-form {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.config-field label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.config-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.config-input {
+  width: 120px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: 'Courier New', monospace;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.config-input:focus {
+  border-color: var(--accent);
+}

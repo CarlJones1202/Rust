@@ -78,6 +78,12 @@ export function updateGallery(id, title) {
   });
 }
 
+export function deleteGallery(id) {
+  return request(`/api/galleries/${id}`, {
+    method: 'DELETE',
+  });
+}
+
 export function retroactiveUpdateTitles(force = false) {
   const url = force
     ? '/api/galleries/retroactive-update?force=true'
@@ -89,9 +95,10 @@ export function retroactiveUpdateTitles(force = false) {
 
 // --- Images ---
 
-export function listImages(page = 1, perPage = 50, favorites = false) {
+export function listImages(page = 1, perPage = 50, favorites = false, q = '') {
   let url = `/api/images?page=${page}&per_page=${perPage}`;
   if (favorites) url += '&favorites=true';
+  if (q) url += `&q=${encodeURIComponent(q)}`;
   return request(url);
 }
 
@@ -109,14 +116,22 @@ export function deleteImage(id) {
 }
 
 // --- Videos ---
-export function listVideos(page = 1, perPage = 50) {
-  return request(`/api/videos?page=${page}&per_page=${perPage}`);
+export function listVideos(page = 1, perPage = 50, q = '') {
+  let url = `/api/videos?page=${page}&per_page=${perPage}`;
+  if (q) url += `&q=${encodeURIComponent(q)}`;
+  return request(url);
 }
 
 export function updateVideo(id, title) {
   return request(`/api/videos/${id}`, {
     method: 'PATCH',
     body: JSON.stringify({ title }),
+  });
+}
+
+export function deleteVideo(id) {
+  return request(`/api/videos/${id}`, {
+    method: 'DELETE',
   });
 }
 
@@ -244,6 +259,17 @@ export function markHostDown(host) {
 export function regatherStashdb() {
   return request('/api/admin/regather-stashdb', {
     method: 'POST',
+  });
+}
+
+export function getAdminConfig() {
+  return request('/api/admin/config');
+}
+
+export function updateAdminConfig(data) {
+  return request('/api/admin/config', {
+    method: 'PUT',
+    body: JSON.stringify(data),
   });
 }
 

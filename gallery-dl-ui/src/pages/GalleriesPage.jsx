@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { LayoutGrid, Image, Wand2, RefreshCw } from 'lucide-react';
-import { listGalleries, getGallery, imageUrl, thumbnailUrl, retroactiveUpdateTitles } from '../api';
+import { listGalleries, getGallery, thumbnailUrl, retroactiveUpdateTitles } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import Pagination from '../components/Pagination';
 import StatusBadge from '../components/StatusBadge';
@@ -12,7 +12,8 @@ export default function GalleriesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const page = parseInt(searchParams.get('page') || '1', 10);
   const [loading, setLoading] = useState(true);
-  const [galleryCoverCache, setGalleryCoverCache] = useState({});
+  const [coverCache, setCoverCache] = useState({});
+  const coverCacheRef = useRef({});
   const [reguessing, setReguessing] = useState(false);
   const [reguessResult, setReguessResult] = useState(null);
   const navigate = useNavigate();
@@ -29,15 +30,20 @@ export default function GalleriesPage() {
     listGalleries(page, 24)
       .then((res) => {
         setData(res);
-        // Fetch first image for each gallery as cover
+        // Use cover_hash from list response; fetch detail only when missing
+        const cache = coverCacheRef.current;
         res.data.forEach((gallery) => {
-          if (!galleryCoverCache[gallery.id]) {
-            getGallery(gallery.id).then((detail) => {
+          const galleryId = gallery.id;
+          if (gallery.cover_hash) {
+            if (!cache[galleryId]) {
+              cache[galleryId] = { hash: gallery.cover_hash };
+              setCoverCache((prev) => ({ ...prev, [galleryId]: { hash: gallery.cover_hash } }));
+            }
+          } else if (!cache[galleryId]) {
+            getGallery(galleryId).then((detail) => {
               if (detail.images && detail.images.length > 0) {
-                setGalleryCoverCache((prev) => ({
-                  ...prev,
-                  [gallery.id]: detail.images[0],
-                }));
+                cache[galleryId] = detail.images[0];
+                setCoverCache((prev) => ({ ...prev, [galleryId]: detail.images[0] }));
               }
             });
           }
@@ -45,7 +51,7 @@ export default function GalleriesPage() {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [page, galleryCoverCache]);
+  }, [page]);
 
   useEffect(() => {
     fetchGalleries();
@@ -126,7 +132,7 @@ export default function GalleriesPage() {
             items={data?.data || []}
             onItemClick={(gallery) => navigate(`/galleries/${gallery.id}`)}
             renderItem={(gallery) => {
-              const cover = galleryCoverCache[gallery.id];
+              const cover = coverCache[gallery.id];
               return (
                 <div className="gallery-card-inner">
                   {cover ? (

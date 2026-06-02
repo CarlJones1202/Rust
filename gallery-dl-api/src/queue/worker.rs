@@ -10,7 +10,8 @@ use crate::services::file_processor::{self, MediaType};
 use crate::services::site_checker::{self, SiteHealth};
 use sqlx::SqlitePool;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
 use tokio::sync::{mpsc, Semaphore};
 use tracing::{error, info, warn};
 
@@ -25,6 +26,28 @@ pub struct DownloadJob {
 
 /// Sender half for submitting jobs to the download queue.
 pub type JobSender = mpsc::UnboundedSender<DownloadJob>;
+
+/// Controls the concurrency limit for a bucket of downloads at runtime.
+/// Allows the admin API to update the limit without restarting the server.
+pub struct ConcurrencyController {
+    pub semaphore: RwLock<Arc<Semaphore>>,
+    pub current_max: AtomicUsize,
+}
+
+impl ConcurrencyController {
+    pub fn new(max: usize) -> Self {
+        Self {
+            semaphore: RwLock::new(Arc::new(Semaphore::new(max))),
+            current_max: AtomicUsize::new(max),
+        }
+    }
+
+    pub fn set_max(&self, new_max: usize) {
+        let new_sem = Arc::new(Semaphore::new(new_max));
+        *self.semaphore.write().unwrap() = new_sem;
+        self.current_max.store(new_max, Ordering::SeqCst);
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum JobBucket {
@@ -57,10 +80,12 @@ pub fn spawn_worker(
     config: Config,
     site_health: SiteHealth,
     http_client: reqwest::Client,
+    image_concurrency: Arc<ConcurrencyController>,
+    video_concurrency: Arc<ConcurrencyController>,
 ) -> JobSender {
     let (tx, rx) = mpsc::unbounded_channel::<DownloadJob>();
 
-    tokio::spawn(run_worker(rx, pool, config, site_health, http_client));
+    tokio::spawn(run_worker(rx, pool, config, site_health, http_client, image_concurrency, video_concurrency));
 
     tx
 }
@@ -215,6 +240,8 @@ async fn run_worker(
     config: Config,
     site_health: SiteHealth,
     http_client: reqwest::Client,
+    image_concurrency: Arc<ConcurrencyController>,
+    video_concurrency: Arc<ConcurrencyController>,
 ) {
     let (image_tx, image_rx) = mpsc::unbounded_channel::<DownloadJob>();
     let (video_tx, video_rx) = mpsc::unbounded_channel::<DownloadJob>();
@@ -224,7 +251,7 @@ async fn run_worker(
         image_rx,
         pool.clone(),
         config.clone(),
-        config.max_concurrent_downloads,
+        image_concurrency,
         "Image",
         site_health.clone(),
     ));
@@ -232,7 +259,7 @@ async fn run_worker(
         video_rx,
         pool.clone(),
         config.clone(),
-        config.max_concurrent_video_downloads,
+        video_concurrency,
         "Video",
         site_health.clone(),
     ));
@@ -268,15 +295,13 @@ async fn bucket_worker(
     mut rx: mpsc::UnboundedReceiver<DownloadJob>,
     pool: SqlitePool,
     config: Config,
-    concurrency: usize,
+    concurrency: Arc<ConcurrencyController>,
     name: &'static str,
     site_health: SiteHealth,
 ) {
-    let semaphore = Arc::new(Semaphore::new(concurrency));
-
     info!(
         bucket = name,
-        concurrency = concurrency,
+        concurrency = concurrency.current_max.load(Ordering::Relaxed),
         "Bucket worker started"
     );
 
@@ -295,7 +320,8 @@ async fn bucket_worker(
             }
         }
 
-        let permit = semaphore.clone().acquire_owned().await;
+        let semaphore = concurrency.semaphore.read().unwrap().clone();
+        let permit = semaphore.acquire_owned().await;
         if permit.is_err() {
             error!(bucket = name, "Bucket semaphore closed unexpectedly");
             break;

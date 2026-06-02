@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Activity, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Database } from 'lucide-react';
-import { listHosts, checkHost, markHostDown, regatherStashdb } from '../api';
+import { Activity, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Database, Download } from 'lucide-react';
+import { listHosts, checkHost, markHostDown, regatherStashdb, getAdminConfig, updateAdminConfig } from '../api';
 import './AdminPage.css';
 
 function formatTime(epochSecs) {
@@ -25,14 +25,22 @@ export default function AdminPage() {
   const [markingHost, setMarkingHost] = useState(null);
   const [regathering, setRegathering] = useState(false);
   const [regatherMessage, setRegatherMessage] = useState(null);
+  const [config, setConfig] = useState(null);
+  const [maxDownloads, setMaxDownloads] = useState('');
+  const [maxVideoDownloads, setMaxVideoDownloads] = useState('');
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [configMessage, setConfigMessage] = useState(null);
   const pollRef = useRef(null);
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await listHosts();
-      setHosts(res.hosts);
+      const [hostRes, configRes] = await Promise.all([listHosts(), getAdminConfig()]);
+      setHosts(hostRes.hosts);
+      setConfig(configRes);
+      setMaxDownloads(String(configRes.max_concurrent_downloads));
+      setMaxVideoDownloads(String(configRes.max_concurrent_video_downloads));
     } catch (err) {
-      console.error('Failed to fetch hosts:', err);
+      console.error('Failed to fetch admin data:', err);
     } finally {
       setLoading(false);
     }
@@ -78,6 +86,33 @@ export default function AdminPage() {
       setRegatherMessage({ type: 'error', text: err.message || 'Failed to start regather' });
     } finally {
       setRegathering(false);
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    const numDownloads = parseInt(maxDownloads, 10);
+    const numVideoDownloads = parseInt(maxVideoDownloads, 10);
+    if (isNaN(numDownloads) || numDownloads < 1) {
+      setConfigMessage({ type: 'error', text: 'Max concurrent downloads must be at least 1' });
+      return;
+    }
+    if (isNaN(numVideoDownloads) || numVideoDownloads < 1) {
+      setConfigMessage({ type: 'error', text: 'Max concurrent video downloads must be at least 1' });
+      return;
+    }
+    setSavingConfig(true);
+    setConfigMessage(null);
+    try {
+      const res = await updateAdminConfig({
+        max_concurrent_downloads: numDownloads,
+        max_concurrent_video_downloads: numVideoDownloads,
+      });
+      setConfig(res);
+      setConfigMessage({ type: 'success', text: 'Concurrency limits updated' });
+    } catch (err) {
+      setConfigMessage({ type: 'error', text: err.message || 'Failed to update config' });
+    } finally {
+      setSavingConfig(false);
     }
   };
 
@@ -215,6 +250,62 @@ export default function AdminPage() {
               }}
             >
               {regatherMessage.text}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="admin-section" style={{ marginTop: '24px' }}>
+        <div className="section-header">
+          <h3>Concurrent Downloads</h3>
+        </div>
+        <div className="config-form">
+          <div className="config-field">
+            <label htmlFor="maxDownloads">Max concurrent image downloads</label>
+            <div className="config-input-row">
+              <input
+                id="maxDownloads"
+                type="number"
+                min="1"
+                className="config-input"
+                value={maxDownloads}
+                onChange={(e) => setMaxDownloads(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="config-field">
+            <label htmlFor="maxVideoDownloads">Max concurrent video downloads</label>
+            <div className="config-input-row">
+              <input
+                id="maxVideoDownloads"
+                type="number"
+                min="1"
+                className="config-input"
+                value={maxVideoDownloads}
+                onChange={(e) => setMaxVideoDownloads(e.target.value)}
+              />
+            </div>
+          </div>
+          <button
+            className="btn"
+            onClick={handleSaveConfig}
+            disabled={savingConfig}
+          >
+            {savingConfig ? (
+              <><RefreshCw size={16} className="spin" /> Saving...</>
+            ) : (
+              <><Download size={16} /> Save</>
+            )}
+          </button>
+          {configMessage && (
+            <p
+              style={{
+                marginTop: '10px',
+                fontSize: '0.875rem',
+                color: configMessage.type === 'success' ? 'var(--success)' : 'var(--error)',
+              }}
+            >
+              {configMessage.text}
             </p>
           )}
         </div>

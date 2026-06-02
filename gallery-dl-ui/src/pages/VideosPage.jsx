@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Video, Edit2, Check, X } from 'lucide-react';
+import { Video, Edit2, Check, X, Search, Trash2 } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import Slideshow from 'yet-another-react-lightbox/plugins/slideshow';
 import 'yet-another-react-lightbox/styles.css';
-import { listVideos, videoUrl, updateVideo } from '../api';
+import { listVideos, videoUrl, updateVideo, deleteVideo } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import VideoCard from '../components/VideoCard';
 import Pagination from '../components/Pagination';
@@ -19,6 +19,7 @@ export default function VideosPage() {
   const [lightboxIndex, setLightboxIndex] = useState(-1);
   const [editingVideoId, setEditingVideoId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const handlePageChange = (newPage) => {
     const params = new URLSearchParams(searchParams);
@@ -27,13 +28,17 @@ export default function VideosPage() {
     setSearchParams(params);
   };
 
-  useEffect(() => {
+  const fetchVideos = useCallback(() => {
     setLoading(true);
-    listVideos(page, 24)
+    listVideos(page, 24, searchQuery)
       .then(setData)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [page]);
+  }, [page, searchQuery]);
+
+  useEffect(() => {
+    fetchVideos();
+  }, [fetchVideos]);
 
   if (loading && !data) {
     return <div className="empty-state"><p>Loading...</p></div>;
@@ -63,6 +68,20 @@ export default function VideosPage() {
     setEditTitle('');
   };
 
+  const handleDeleteVideo = async (vid) => {
+    if (!window.confirm(`Delete this video${vid.title ? ` (${vid.title})` : ''}? This will remove the file and database record.`)) return;
+    try {
+      await deleteVideo(vid.id);
+      setData((prev) => ({
+        ...prev,
+        data: prev.data.filter(v => v.id !== vid.id),
+      }));
+      setLightboxIndex(-1);
+    } catch (err) {
+      alert('Failed to delete video: ' + err.message);
+    }
+  };
+
   const videos = data?.data || [];
   const currentVideo = lightboxIndex >= 0 ? videos[lightboxIndex] : null;
   const slides = videos.map((vid) => ({
@@ -85,6 +104,15 @@ export default function VideosPage() {
       <div className="page-header">
         <h2>Videos</h2>
         <p>All downloaded videos</p>
+        <div className="search-bar">
+          <Search size={16} />
+          <input
+            type="text"
+            placeholder="Search videos..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
       </div>
 
       {videos.length === 0 ? (
@@ -158,6 +186,23 @@ export default function VideosPage() {
             }
             return undefined;
           },
+        }}
+        toolbar={{
+          buttons: [
+            <button
+              key="delete-video"
+              type="button"
+              className="yarl__button"
+              title="Delete Video"
+              onClick={() => {
+                const vid = videos[lightboxIndex];
+                if (vid) handleDeleteVideo(vid);
+              }}
+            >
+              <Trash2 size={24} />
+            </button>,
+            "close",
+          ]
         }}
       />
     </div>

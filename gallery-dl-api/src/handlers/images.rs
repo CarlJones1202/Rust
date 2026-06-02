@@ -16,8 +16,9 @@ pub async fn list_images(
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<ImageWithGallery>>, (StatusCode, Json<serde_json::Value>)> {
     let favorites_only = params.favorites.as_deref() == Some("true");
+    let search_query = params.q.as_deref();
 
-    let total = Image::count(&state.db, favorites_only).await.map_err(|e| {
+    let total = Image::count(&state.db, favorites_only, search_query).await.map_err(|e| {
         error!(error = %e, "Failed to count images");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -25,7 +26,7 @@ pub async fn list_images(
         )
     })?;
 
-    let items = Image::list(&state.db, params.per_page(), params.offset(), favorites_only)
+    let items = Image::list(&state.db, params.per_page(), params.offset(), favorites_only, search_query)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to list images");

@@ -89,29 +89,57 @@ impl Video {
         .await
     }
 
-    /// List videos with pagination.
+    /// List videos with pagination, optionally filtered by search query.
     pub async fn list(
         pool: &SqlitePool,
         limit: i64,
         offset: i64,
+        search_query: Option<&str>,
     ) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as::<_, Self>(
-            "SELECT v.*, vp.position_seconds as progress_seconds 
-             FROM videos v 
-             LEFT JOIN video_progress vp ON v.id = vp.video_id 
-             ORDER BY v.created_at DESC 
-             LIMIT ? OFFSET ?"
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await
+        let (sql, has_search) = if search_query.is_some() {
+            (
+                "SELECT v.*, vp.position_seconds as progress_seconds 
+                 FROM videos v 
+                 LEFT JOIN video_progress vp ON v.id = vp.video_id 
+                 WHERE (v.title LIKE ?3 OR v.original_filename LIKE ?3) 
+                 ORDER BY v.created_at DESC 
+                 LIMIT ?1 OFFSET ?2",
+                true,
+            )
+        } else {
+            (
+                "SELECT v.*, vp.position_seconds as progress_seconds 
+                 FROM videos v 
+                 LEFT JOIN video_progress vp ON v.id = vp.video_id 
+                 ORDER BY v.created_at DESC 
+                 LIMIT ?1 OFFSET ?2",
+                false,
+            )
+        };
+
+        let mut q = sqlx::query_as::<_, Self>(sql)
+            .bind(limit)
+            .bind(offset);
+        if has_search {
+            let pattern = format!("%{}%", search_query.unwrap());
+            q = q.bind(pattern);
+        }
+        q.fetch_all(pool).await
     }
 
-    pub async fn count(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
-        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM videos")
-            .fetch_one(pool)
-            .await?;
+    pub async fn count(pool: &SqlitePool, search_query: Option<&str>) -> Result<i64, sqlx::Error> {
+        let (sql, has_search) = if search_query.is_some() {
+            ("SELECT COUNT(*) FROM videos WHERE title LIKE ?1 OR original_filename LIKE ?1", true)
+        } else {
+            ("SELECT COUNT(*) FROM videos", false)
+        };
+
+        let mut q = sqlx::query_as::<_, (i64,)>(sql);
+        if has_search {
+            let pattern = format!("%{}%", search_query.unwrap());
+            q = q.bind(pattern);
+        }
+        let row: (i64,) = q.fetch_one(pool).await?;
         Ok(row.0)
     }
 

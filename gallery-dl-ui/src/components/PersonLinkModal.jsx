@@ -65,7 +65,11 @@ export default function PersonLinkModal({ galleryId, onClose, onLink }) {
                   onClick={() => handleLink(person.id)}
                 >
                   <div className="result-avatar">
-                     <User size={20} />
+                    {person.image_hash ? (
+                      <img src={thumbnailUrl(person.image_hash)} alt="" className="result-avatar-img" />
+                    ) : (
+                      <User size={20} />
+                    )}
                   </div>
                   <div className="result-info">
                     <div className="result-name">{person.name}</div>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ExternalLink, RefreshCcw, Trash2, Pencil, Check, X, Image, Film, AlertCircle, Link as LinkIcon, Plus } from 'lucide-react';
-import { getRequest, updateRequest, requeueRequest, deleteRequest, guessRequestTitle } from '../api';
+import { getRequest, getGallery, updateRequest, requeueRequest, deleteRequest, guessRequestTitle, thumbnailUrl } from '../api';
 import StatusBadge from '../components/StatusBadge';
 import MediaGrid from '../components/MediaGrid';
 import Pagination from '../components/Pagination';
@@ -19,6 +19,8 @@ export default function RequestDetailPage() {
   const [activeTab, setActiveTab] = useState('galleries');
   const [galleryPage, setGalleryPage] = useState(1);
   const [galleryDetails, setGalleryDetails] = useState({});
+  const [galleryCovers, setGalleryCovers] = useState({});
+  const coverCacheRef = useRef({});
   const pollRef = useRef(null);
 
   const fetchData = useCallback(async () => {
@@ -55,6 +57,18 @@ export default function RequestDetailPage() {
         if (!next[g.id]) next[g.id] = { loading: true };
       });
       return next;
+    });
+    // Fetch cover images for galleries
+    const cache = coverCacheRef.current;
+    data.galleries.forEach((g) => {
+      if (!cache[g.id]) {
+        getGallery(g.id).then((detail) => {
+          if (detail.images && detail.images.length > 0) {
+            cache[g.id] = detail.images[0];
+            setGalleryCovers((prev) => ({ ...prev, [g.id]: detail.images[0] }));
+          }
+        });
+      }
     });
   }, [data]);
 
@@ -305,14 +319,21 @@ export default function RequestDetailPage() {
               <MediaGrid
                 items={paginatedGalleries}
                 onItemClick={(g) => navigate(`/galleries/${g.id}`)}
-                renderItem={(g) => (
-                  <div className="gallery-thumb-card">
-                    <div className="gallery-thumb-placeholder">
-                      <Image size={20} />
+                renderItem={(g) => {
+                  const cover = galleryCovers[g.id];
+                  return (
+                    <div className="gallery-thumb-card">
+                      {cover ? (
+                        <img src={thumbnailUrl(cover.hash)} alt="" className="gallery-thumb-cover" />
+                      ) : (
+                        <div className="gallery-thumb-placeholder">
+                          <Image size={20} />
+                        </div>
+                      )}
+                      <div className="gallery-thumb-name">{g.title || g.id.slice(0, 8)}</div>
                     </div>
-                    <div className="gallery-thumb-name">{g.title || g.id.slice(0, 8)}</div>
-                  </div>
-                )}
+                  );
+                }}
               />
               {galleriesTotalPages > 1 && (
                 <Pagination

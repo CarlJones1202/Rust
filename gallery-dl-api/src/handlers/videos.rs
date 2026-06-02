@@ -16,7 +16,9 @@ pub async fn list_videos(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<Video>>, (StatusCode, Json<serde_json::Value>)> {
-    let total = Video::count(&state.db).await.map_err(|e| {
+    let search_query = params.q.as_deref();
+
+    let total = Video::count(&state.db, search_query).await.map_err(|e| {
         error!(error = %e, "Failed to count videos");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -24,7 +26,7 @@ pub async fn list_videos(
         )
     })?;
 
-    let items = Video::list(&state.db, params.per_page(), params.offset())
+    let items = Video::list(&state.db, params.per_page(), params.offset(), search_query)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to list videos");

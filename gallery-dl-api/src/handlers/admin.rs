@@ -3,7 +3,8 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 use md5::{Digest, Md5};
 use tracing::{info, warn};
@@ -154,6 +155,37 @@ pub async fn regather_stashdb(
         "total": total,
         "message": format!("Regathering StashDB data for {} persons in background", total)
     })))
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ConcurrencyConfig {
+    pub max_concurrent_downloads: usize,
+    pub max_concurrent_video_downloads: usize,
+}
+
+/// GET /api/admin/config — Return current concurrency limits.
+pub async fn get_config(
+    State(state): State<AppState>,
+) -> Json<ConcurrencyConfig> {
+    Json(ConcurrencyConfig {
+        max_concurrent_downloads: state.image_concurrency.current_max.load(Ordering::Relaxed),
+        max_concurrent_video_downloads: state.video_concurrency.current_max.load(Ordering::Relaxed),
+    })
+}
+
+/// PUT /api/admin/config — Update concurrency limits at runtime.
+pub async fn update_config(
+    State(state): State<AppState>,
+    Json(input): Json<ConcurrencyConfig>,
+) -> Result<Json<ConcurrencyConfig>, (StatusCode, Json<serde_json::Value>)> {
+    state.image_concurrency.set_max(input.max_concurrent_downloads);
+    state.video_concurrency.set_max(input.max_concurrent_video_downloads);
+    info!(
+        max_images = input.max_concurrent_downloads,
+        max_videos = input.max_concurrent_video_downloads,
+        "Concurrency limits updated"
+    );
+    Ok(Json(input))
 }
 
 async fn regather_all_stashdb_data(

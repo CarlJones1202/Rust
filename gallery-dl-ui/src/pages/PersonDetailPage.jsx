@@ -307,7 +307,7 @@ export default function PersonDetailPage() {
                 <MetadataItem icon={<Users size={16}/>} label="Gender" value={person.gender} isEditing={isEditing} onChange={v => setEditData({...editData, gender: v})} />
                 <MetadataItem icon={<Info size={16}/>} label="Ethnicity" value={person.ethnicity} isEditing={isEditing} onChange={v => setEditData({...editData, ethnicity: v})} />
                 <MetadataItem icon={<Ruler size={16}/>} label="Height" value={person.height ? `${person.height} cm` : null} isEditing={isEditing} onChange={v => setEditData({...editData, height: v === '' ? null : parseInt(v)})} type="number" />
-                <MetadataItem icon={<Calendar size={16}/>} label="Career" value={person.career_start_year ? `${person.career_start_year} - ${person.career_end_year || 'Present'}` : null} isEditing={isEditing} isRange onChangeStart={v => setEditData({...editData, career_start_year: v === '' ? null : parseInt(v)})} onChangeEnd={v => setEditData({...editData, career_end_year: v === '' ? null : parseInt(v)})} />
+                <MetadataItem icon={<Calendar size={16}/>} label="Career" value={person.career_start_year ? `${person.career_start_year} - ${person.career_end_year || 'Present'}` : null} isEditing={isEditing} isRange startValue={editData.career_start_year} endValue={editData.career_end_year} onChangeStart={v => setEditData({...editData, career_start_year: v === '' ? null : parseInt(v)})} onChangeEnd={v => setEditData({...editData, career_end_year: v === '' ? null : parseInt(v)})} />
                 <MetadataItem icon={<Hash size={16}/>} label="Measurements" value={person.measurements} isEditing={isEditing} onChange={v => setEditData({...editData, measurements: v})} />
                 {isEditing && (
                   <MetadataItem icon={<Info size={16}/>} label="Disambiguation" value={person.disambiguation} isEditing={isEditing} onChange={v => setEditData({...editData, disambiguation: v})} />
@@ -315,7 +315,30 @@ export default function PersonDetailPage() {
                 <MetadataItem icon={<User size={16}/>} label="Hair Color" value={person.hair_color} isEditing={isEditing} onChange={v => setEditData({...editData, hair_color: v})} />
                 <MetadataItem icon={<User size={16}/>} label="Eye Color" value={person.eye_color} isEditing={isEditing} onChange={v => setEditData({...editData, eye_color: v})} />
                 <MetadataItem icon={<User size={16}/>} label="Breast Type" value={person.breast_type} isEditing={isEditing} onChange={v => setEditData({...editData, breast_type: v})} />
+                <MetadataItem icon={<Hash size={16}/>} label="StashDB ID" value={person.stashdb_id} isEditing={false} />
               </div>
+              {isEditing && (
+                <div className="meta-item" style={{ marginTop: '12px' }}>
+                  <div className="meta-label"><Info size={16} /><span>Extra Data</span></div>
+                  <div className="meta-value">
+                    <textarea
+                      className="extra-data-textarea"
+                      value={JSON.stringify(editData.extra_data || {}, null, 2)}
+                      onChange={e => {
+                        const raw = e.target.value;
+                        try {
+                          setEditData({...editData, extra_data: JSON.parse(raw)});
+                        } catch {
+                          // Keep the string as-is for editing, backend will handle errors
+                          setEditData({...editData, extra_data: raw});
+                        }
+                      }}
+                      rows={5}
+                      placeholder="{}"
+                    />
+                  </div>
+                </div>
+              )}
            </section>
 
            <section className="bio-section">
@@ -399,7 +422,7 @@ export default function PersonDetailPage() {
   );
 }
 
-function MetadataItem({ icon, label, value, isEditing, onChange, isRange, onChangeStart, onChangeEnd, type = "text" }) {
+function MetadataItem({ icon, label, value, isEditing, onChange, isRange, onChangeStart, onChangeEnd, startValue, endValue, type = "text" }) {
   return (
     <div className="meta-item">
       <div className="meta-label">
@@ -410,9 +433,9 @@ function MetadataItem({ icon, label, value, isEditing, onChange, isRange, onChan
         {isEditing ? (
           isRange ? (
             <div className="range-inputs">
-              <input type="number" placeholder="Start" onChange={e => onChangeStart(e.target.value)} />
+              <input type="number" placeholder="Start" value={startValue ?? ''} onChange={e => onChangeStart(e.target.value)} />
               <span>-</span>
-              <input type="number" placeholder="End" onChange={e => onChangeEnd(e.target.value)} />
+              <input type="number" placeholder="End" value={endValue ?? ''} onChange={e => onChangeEnd(e.target.value)} />
             </div>
           ) : (
             <input type={type} value={value || ''} onChange={e => onChange(e.target.value)} />
