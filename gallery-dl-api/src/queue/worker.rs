@@ -22,6 +22,7 @@ pub struct DownloadJob {
     pub url: String,
     pub title: Option<String>,
     pub backup_url: Option<String>,
+    pub priority: i64,
 }
 
 /// Sender half for submitting jobs to the download queue.
@@ -133,6 +134,7 @@ pub async fn recover_pending_jobs(pool: &SqlitePool, tx: JobSender, site_health:
                                     url: backup_url.to_string(),
                                     title: req.title.clone(),
                                     backup_url: req.backup_url.clone(),
+                                    priority: req.priority,
                                 });
                                 recovered += 1;
                                 continue;
@@ -153,6 +155,7 @@ pub async fn recover_pending_jobs(pool: &SqlitePool, tx: JobSender, site_health:
                     url: req.url.clone(),
                     title: req.title.clone(),
                     backup_url: req.backup_url.clone(),
+                    priority: req.priority,
                 });
                 recovered += 1;
             }

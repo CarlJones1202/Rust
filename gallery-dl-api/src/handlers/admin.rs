@@ -10,6 +10,7 @@ use md5::{Digest, Md5};
 use tracing::{info, warn};
 
 use crate::models::person::{Person, PersonAlias, PersonImage, PersonInput};
+use crate::queue::worker::DownloadJob;
 use crate::services::stashdb;
 use crate::AppState;
 
@@ -174,17 +175,57 @@ pub async fn get_config(
 }
 
 /// PUT /api/admin/config — Update concurrency limits at runtime.
+/// If limits are increased, pending jobs are queued to fill the new capacity.
 pub async fn update_config(
     State(state): State<AppState>,
     Json(input): Json<ConcurrencyConfig>,
 ) -> Result<Json<ConcurrencyConfig>, (StatusCode, Json<serde_json::Value>)> {
+    let old_image = state.image_concurrency.current_max.load(Ordering::Relaxed);
+    let old_video = state.video_concurrency.current_max.load(Ordering::Relaxed);
+
     state.image_concurrency.set_max(input.max_concurrent_downloads);
     state.video_concurrency.set_max(input.max_concurrent_video_downloads);
-    info!(
-        max_images = input.max_concurrent_downloads,
-        max_videos = input.max_concurrent_video_downloads,
-        "Concurrency limits updated"
-    );
+
+    // If either limit was increased, re-queue pending downloads to fill new capacity
+    if input.max_concurrent_downloads > old_image || input.max_concurrent_video_downloads > old_video {
+        let pending = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64)>(
+            "SELECT id, url, title, backup_url, priority FROM requests WHERE status = 'pending' ORDER BY priority DESC, created_at ASC",
+        )
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to fetch pending jobs after limit increase");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Failed to fetch pending jobs" })),
+            )
+        })?;
+
+        let count = pending.len();
+        for (id, url, title, backup_url, priority) in pending {
+            let _ = state.job_sender.send(DownloadJob {
+                request_id: id,
+                url,
+                title,
+                backup_url,
+                priority,
+            });
+        }
+
+        info!(
+            max_images = input.max_concurrent_downloads,
+            max_videos = input.max_concurrent_video_downloads,
+            requeued = count,
+            "Concurrency limits increased, pending jobs requeued"
+        );
+    } else {
+        info!(
+            max_images = input.max_concurrent_downloads,
+            max_videos = input.max_concurrent_video_downloads,
+            "Concurrency limits decreased"
+        );
+    }
+
     Ok(Json(input))
 }
 

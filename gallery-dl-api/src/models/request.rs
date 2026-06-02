@@ -12,6 +12,7 @@ pub struct DownloadRequest {
     pub error_message: Option<String>,
     pub image_count: i64,
     pub video_count: i64,
+    pub priority: i64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -117,6 +118,8 @@ impl DownloadRequest {
             Some("title_desc") => "title DESC",
             Some("url_asc") => "url ASC",
             Some("url_desc") => "url DESC",
+            Some("priority_asc") => "priority ASC",
+            Some("priority_desc") => "priority DESC",
             _ => "created_at DESC",
         };
 
@@ -179,7 +182,7 @@ impl DownloadRequest {
                    (SELECT COUNT(*) FROM videos v WHERE v.request_id = r.id) as video_count
             FROM requests r 
             WHERE r.status IN ('pending', 'processing') 
-            ORDER BY r.created_at ASC
+            ORDER BY r.priority DESC, r.created_at ASC
             "#
         )
         .fetch_all(pool)
@@ -214,6 +217,22 @@ impl DownloadRequest {
             "UPDATE requests SET backup_url = ?, updated_at = datetime('now') WHERE id = ?"
         )
         .bind(backup_url)
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Update the priority for an existing request.
+    pub async fn update_priority(
+        pool: &SqlitePool,
+        id: &str,
+        priority: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE requests SET priority = ?, updated_at = datetime('now') WHERE id = ?"
+        )
+        .bind(priority)
         .bind(id)
         .execute(pool)
         .await?;

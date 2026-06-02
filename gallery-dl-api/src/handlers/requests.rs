@@ -26,6 +26,7 @@ pub struct CreateRequestBody {
 pub struct UpdateRequestBody {
     pub backup_url: Option<String>,
     pub name: Option<String>,
+    pub priority: Option<i64>,
 }
 
 /// POST /api/requests — Submit a new URL for download.
@@ -77,6 +78,7 @@ pub async fn create_request(
         url: url.clone(),
         title: request.title.clone(),
         backup_url: backup_url.clone(),
+        priority: request.priority,
     }) {
         error!(error = %e, "Failed to enqueue download job");
         let _ = DownloadRequest::update_status(
@@ -266,6 +268,7 @@ pub async fn requeue_request(
         url: request.url.clone(),
         title: request.title.clone(),
         backup_url: request.backup_url.clone(),
+        priority: request.priority,
     }) {
         error!(error = %e, "Failed to re-enqueue download job");
         return Err((
@@ -354,6 +357,19 @@ pub async fn update_request(
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(serde_json::json!({ "error": "Failed to update backup_url" })),
+                )
+            })?;
+    }
+
+    if let Some(priority) = body.priority {
+        let priority = priority.clamp(0, 100);
+        DownloadRequest::update_priority(&state.db, &id, priority)
+            .await
+            .map_err(|e| {
+                error!(error = %e, "Failed to update priority");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "Failed to update priority" })),
                 )
             })?;
     }

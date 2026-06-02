@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Download, ExternalLink, RefreshCcw, Pencil, Check, X, Trash2 } from 'lucide-react';
+import { Download, ExternalLink, RefreshCcw, Pencil, Check, X, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
 import { listRequests, requeueRequest, updateRequest, deleteRequest } from '../api';
 import StatusBadge from '../components/StatusBadge';
 import Pagination from '../components/Pagination';
@@ -113,6 +113,16 @@ export default function DownloadsPage() {
     }
   };
 
+  const handlePriorityChange = async (id, newPriority) => {
+    const clamped = Math.max(0, Math.min(100, newPriority));
+    try {
+      await updateRequest(id, { priority: clamped });
+      fetchData(page, debouncedSearch, sort, status);
+    } catch (err) {
+      alert(`Failed to update priority: ${err.message}`);
+    }
+  };
+
   const handleDelete = async (req) => {
     if (!window.confirm(`Delete this download request and all of its media? This cannot be undone.`)) return;
     try {
@@ -189,6 +199,8 @@ export default function DownloadsPage() {
           >
             <option value="newest">Newest First</option>
             <option value="oldest">Oldest First</option>
+            <option value="priority_desc">Priority (Highest)</option>
+            <option value="priority_asc">Priority (Lowest)</option>
             <option value="status_asc">Status (A-Z)</option>
             <option value="status_desc">Status (Z-A)</option>
             <option value="title_asc">Title (A-Z)</option>
@@ -253,6 +265,23 @@ export default function DownloadsPage() {
                   )}
                 </div>
                 <div className="download-actions">
+                  <div className="priority-control" title={`Priority: ${req.priority ?? 0}`}>
+                    <button
+                      className="btn-icon btn-icon-xs"
+                      onClick={() => handlePriorityChange(req.id, (req.priority ?? 0) + 1)}
+                      title="Increase priority"
+                    >
+                      <ArrowUp size={10} />
+                    </button>
+                    <span className="priority-value">{req.priority ?? 0}</span>
+                    <button
+                      className="btn-icon btn-icon-xs"
+                      onClick={() => handlePriorityChange(req.id, (req.priority ?? 0) - 1)}
+                      title="Decrease priority"
+                    >
+                      <ArrowDown size={10} />
+                    </button>
+                  </div>
                   <StatusBadge status={req.status} />
                   <a
                     href={req.url}

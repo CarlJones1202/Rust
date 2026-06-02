@@ -212,4 +212,26 @@
   color: var(--accent);
 }
 
+/* Priority control */
+.priority-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.priority-value {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.btn-icon-xs {
+  width: 16px;
+  height: 16px;
+}
+
 

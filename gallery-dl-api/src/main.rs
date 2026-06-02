@@ -251,6 +251,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 url: effective_url,
                                 title: req.title.clone(),
                                 backup_url: req.backup_url.clone(),
+                                priority: req.priority,
                             });
                             count += 1;
                         }

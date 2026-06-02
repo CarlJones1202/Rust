@@ -116,6 +116,14 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         }
     }
 
+    // 012: Priority for requests (default 0, higher = more important)
+    if let Err(e) = sqlx::query("ALTER TABLE requests ADD COLUMN priority INTEGER NOT NULL DEFAULT 0").execute(pool).await {
+        let msg = e.to_string();
+        if !msg.contains("duplicate column name") {
+            error!(error = %msg, "Failed to add priority to requests");
+        }
+    }
+
     info!("Migrations applied successfully");
     Ok(())
 }
