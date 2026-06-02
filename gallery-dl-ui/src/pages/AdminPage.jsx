@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Activity, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle } from 'lucide-react';
-import { listHosts, checkHost, markHostDown } from '../api';
+import { Activity, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Database } from 'lucide-react';
+import { listHosts, checkHost, markHostDown, regatherStashdb } from '../api';
 import './AdminPage.css';
 
 function formatTime(epochSecs) {
@@ -23,6 +23,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [checkingHost, setCheckingHost] = useState(null);
   const [markingHost, setMarkingHost] = useState(null);
+  const [regathering, setRegathering] = useState(false);
+  const [regatherMessage, setRegatherMessage] = useState(null);
   const pollRef = useRef(null);
 
   const fetchData = useCallback(async () => {
@@ -63,6 +65,19 @@ export default function AdminPage() {
       console.error('Failed to mark host down:', err);
     } finally {
       setMarkingHost(null);
+    }
+  };
+
+  const handleRegather = async () => {
+    setRegathering(true);
+    setRegatherMessage(null);
+    try {
+      const res = await regatherStashdb();
+      setRegatherMessage({ type: 'success', text: res.message || 'Regather started' });
+    } catch (err) {
+      setRegatherMessage({ type: 'error', text: err.message || 'Failed to start regather' });
+    } finally {
+      setRegathering(false);
     }
   };
 
@@ -169,6 +184,40 @@ export default function AdminPage() {
             </tbody>
           </table>
         )}
+      </div>
+
+      <div className="admin-section" style={{ marginTop: '24px' }}>
+        <div className="section-header">
+          <h3>StashDB Data</h3>
+        </div>
+        <div style={{ padding: '20px' }}>
+          <p style={{ marginBottom: '12px', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+            Forcefully re-fetch all StashDB metadata and photos for every person that has been
+            imported. Old data (including photos) will be purged before downloading the latest.
+          </p>
+          <button
+            className="btn"
+            onClick={handleRegather}
+            disabled={regathering}
+          >
+            {regathering ? (
+              <><RefreshCw size={16} className="spin" /> Regathering...</>
+            ) : (
+              <><Database size={16} /> Regather StashDB Data</>
+            )}
+          </button>
+          {regatherMessage && (
+            <p
+              style={{
+                marginTop: '10px',
+                fontSize: '0.875rem',
+                color: regatherMessage.type === 'success' ? 'var(--success)' : 'var(--error)',
+              }}
+            >
+              {regatherMessage.text}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

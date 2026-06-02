@@ -4,6 +4,7 @@ import { LayoutGrid, Image } from 'lucide-react';
 import { listGalleries, getGallery, imageUrl, thumbnailUrl } from '../api';
 import MediaGrid from '../components/MediaGrid';
 import Pagination from '../components/Pagination';
+import StatusBadge from '../components/StatusBadge';
 import './GalleriesPage.css';
 
 export default function GalleriesPage() {

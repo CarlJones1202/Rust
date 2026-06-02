@@ -6,17 +6,17 @@ use axum::{
 use std::path::PathBuf;
 use tracing::error;
 
-use crate::models::gallery::{Gallery, GalleryDetail};
+use crate::models::gallery::{Gallery, GalleryDetail, GalleryWithCover};
 use crate::models::image::Image;
 use crate::models::person::get_persons_for_gallery;
 use crate::pagination::{PaginatedResponse, PaginationMeta, PaginationParams};
 use crate::AppState;
 
-/// GET /api/galleries — List all galleries (paginated).
+/// GET /api/galleries — List all galleries (paginated) with download status.
 pub async fn list_galleries(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
-) -> Result<Json<PaginatedResponse<Gallery>>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Json<PaginatedResponse<GalleryWithCover>>, (StatusCode, Json<serde_json::Value>)> {
     let total = Gallery::count(&state.db).await.map_err(|e| {
         error!(error = %e, "Failed to count galleries");
         (
@@ -25,7 +25,7 @@ pub async fn list_galleries(
         )
     })?;
 
-    let items = Gallery::list(&state.db, params.per_page(), params.offset())
+    let items = Gallery::list_with_status(&state.db, params.per_page(), params.offset())
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to list galleries");
@@ -70,7 +70,14 @@ pub async fn get_gallery(
         .await
         .unwrap_or_default();
 
-    Ok(Json(GalleryDetail { gallery, images, persons }))
+    let status: String = sqlx::query_scalar("SELECT COALESCE(status, 'unknown') FROM requests WHERE id = ?")
+        .bind(&gallery.request_id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None)
+        .unwrap_or_else(|| "unknown".to_string());
+
+    Ok(Json(GalleryDetail { gallery, images, persons, status }))
 }
 
 #[derive(Debug, serde::Deserialize)]

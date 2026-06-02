@@ -232,6 +232,12 @@ export function markHostDown(host) {
   });
 }
 
+export function regatherStashdb() {
+  return request('/api/admin/regather-stashdb', {
+    method: 'POST',
+  });
+}
+
 // --- Media URLs ---
 
 export function imageUrl(hash, extension) {

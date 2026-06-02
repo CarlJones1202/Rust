@@ -18,15 +18,17 @@ pub struct GalleryWithCover {
     pub title: Option<String>,
     pub created_at: String,
     pub cover_hash: Option<String>,
+    pub status: String,
 }
 
-/// Gallery with nested images and linked persons for detail responses.
+/// Gallery with nested images, linked persons, and download status for detail responses.
 #[derive(Debug, Serialize)]
 pub struct GalleryDetail {
     #[serde(flatten)]
     pub gallery: Gallery,
     pub images: Vec<super::image::Image>,
     pub persons: Vec<super::person::PersonSummary>,
+    pub status: String,
 }
 
 impl Gallery {
@@ -83,13 +85,35 @@ impl Gallery {
         .await
     }
 
-    /// Get galleries linked to a person with their cover image hash.
+    /// List galleries with pagination and download status.
+    pub async fn list_with_status(
+        pool: &SqlitePool,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<GalleryWithCover>, sqlx::Error> {
+        sqlx::query_as::<_, GalleryWithCover>(
+            "SELECT g.id, g.request_id, g.title, g.created_at,
+                NULL as cover_hash,
+                COALESCE(r.status, 'unknown') as status
+             FROM galleries g
+             LEFT JOIN requests r ON g.request_id = r.id
+             ORDER BY g.created_at DESC LIMIT ? OFFSET ?"
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+    }
+
+    /// Get galleries linked to a person with their cover image hash and download status.
     pub async fn get_by_person_id(pool: &SqlitePool, person_id: &str) -> Result<Vec<GalleryWithCover>, sqlx::Error> {
         sqlx::query_as::<_, GalleryWithCover>(
             "SELECT g.id, g.request_id, g.title, g.created_at,
-                (SELECT i.hash FROM images i WHERE i.gallery_id = g.id ORDER BY i.created_at ASC LIMIT 1) as cover_hash
+                (SELECT i.hash FROM images i WHERE i.gallery_id = g.id ORDER BY i.created_at ASC LIMIT 1) as cover_hash,
+                COALESCE(r.status, 'unknown') as status
              FROM galleries g
              JOIN gallery_persons gp ON g.id = gp.gallery_id
+             LEFT JOIN requests r ON g.request_id = r.id
              WHERE gp.person_id = ?
              ORDER BY g.created_at DESC"
         )

@@ -315,6 +315,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/admin/hosts", get(handlers::admin::list_hosts))
         .route("/api/admin/hosts/{host}/check", post(handlers::admin::check_host))
         .route("/api/admin/hosts/{host}/mark-down", post(handlers::admin::mark_host_down))
+        .route("/api/admin/regather-stashdb", post(handlers::admin::regather_stashdb))
         // Static file serving for media
         .nest_service(
             "/media/images",
