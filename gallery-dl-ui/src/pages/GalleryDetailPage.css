@@ -95,6 +95,9 @@
 }
 
 .gallery-stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   color: var(--text-secondary);
   font-size: 0.85rem;
   margin-bottom: 20px;

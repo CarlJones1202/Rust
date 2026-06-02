@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import AppLayout from './components/AppLayout';
 import DownloadsPage from './pages/DownloadsPage';
+import RequestDetailPage from './pages/RequestDetailPage';
 import GalleriesPage from './pages/GalleriesPage';
 import GalleryDetailPage from './pages/GalleryDetailPage';
 import PeoplePage from './pages/PeoplePage';
@@ -15,6 +16,7 @@ export default function App() {
       <Routes>
         <Route element={<AppLayout />}>
           <Route path="/" element={<DownloadsPage />} />
+          <Route path="/downloads/:id" element={<RequestDetailPage />} />
           <Route path="/galleries" element={<GalleriesPage />} />
           <Route path="/galleries/:id" element={<GalleryDetailPage />} />
           <Route path="/people" element={<PeoplePage />} />

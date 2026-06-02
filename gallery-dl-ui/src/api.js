@@ -44,6 +44,12 @@ export function requeueRequest(id) {
   });
 }
 
+export function deleteRequest(id) {
+  return request(`/api/requests/${id}`, {
+    method: 'DELETE',
+  });
+}
+
 export function updateRequest(id, data) {
   return request(`/api/requests/${id}`, {
     method: 'PATCH',
@@ -72,8 +78,11 @@ export function updateGallery(id, title) {
   });
 }
 
-export function retroactiveUpdateTitles() {
-  return request('/api/galleries/retroactive-update', {
+export function retroactiveUpdateTitles(force = false) {
+  const url = force
+    ? '/api/galleries/retroactive-update?force=true'
+    : '/api/galleries/retroactive-update';
+  return request(url, {
     method: 'POST',
   });
 }

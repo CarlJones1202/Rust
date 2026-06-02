@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "bash": {
+      "Stop-Process*": "ask",
+      "taskkill*": "ask",
+      "kill *": "ask",
+      "kill-port*": "ask",
+      "Get-Process*Stop-Process*": "ask",
+      "wmic*delete*": "ask",
+      "*": "allow"
+    }
+  }
+}

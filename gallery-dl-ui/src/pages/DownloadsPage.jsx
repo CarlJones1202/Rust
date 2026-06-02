@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Download, ExternalLink, RefreshCcw, Pencil, Check, X } from 'lucide-react';
-import { listRequests, requeueRequest, updateRequest } from '../api';
+import { Download, ExternalLink, RefreshCcw, Pencil, Check, X, Trash2 } from 'lucide-react';
+import { listRequests, requeueRequest, updateRequest, deleteRequest } from '../api';
 import StatusBadge from '../components/StatusBadge';
 import Pagination from '../components/Pagination';
 import './DownloadsPage.css';
@@ -110,6 +110,16 @@ export default function DownloadsPage() {
       fetchData(page, debouncedSearch, sort, status);
     } catch (err) {
       alert(`Failed to requeue: ${err.message}`);
+    }
+  };
+
+  const handleDelete = async (req) => {
+    if (!window.confirm(`Delete this download request and all of its media? This cannot be undone.`)) return;
+    try {
+      await deleteRequest(req.id);
+      fetchData(page, debouncedSearch, sort, status);
+    } catch (err) {
+      alert(`Failed to delete: ${err.message}`);
     }
   };
 
@@ -260,6 +270,14 @@ export default function DownloadsPage() {
                     disabled={['pending', 'downloading', 'processing'].includes(req.status)}
                   >
                     <RefreshCcw size={14} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(req)}
+                    className="btn btn-ghost"
+                    title="Delete request and all media"
+                    disabled={['pending', 'downloading', 'processing'].includes(req.status)}
+                  >
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>

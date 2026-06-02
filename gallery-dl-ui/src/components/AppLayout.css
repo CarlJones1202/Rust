@@ -127,3 +127,11 @@
   font-size: 0.875rem;
   margin-top: 4px;
 }
+
+.page-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}

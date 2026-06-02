@@ -8,6 +8,7 @@ import 'yet-another-react-lightbox/styles.css';
 import 'yet-another-react-lightbox/plugins/captions.css';
 import { getGallery, imageUrl, thumbnailUrl, updateGallery, toggleFavorite } from '../api';
 import MediaGrid from '../components/MediaGrid';
+import StatusBadge from '../components/StatusBadge';
 import PersonLinkModal from '../components/PersonLinkModal';
 import './GalleryDetailPage.css';
 
@@ -150,8 +151,9 @@ export default function GalleryDetailPage() {
         )}
       </div>
       <div className="gallery-stats">
-        {images.length} image{images.length !== 1 ? 's' : ''} · Created{' '}
-        {new Date(gallery.created_at + 'Z').toLocaleString()}
+        <StatusBadge status={gallery.status} />
+        <span>{images.length} image{images.length !== 1 ? 's' : ''} · Created{' '}
+        {new Date(gallery.created_at + 'Z').toLocaleString()}</span>
       </div>
 
       <div className="gallery-people-section">

@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { 
-  ArrowLeft, Edit2, Check, X, Users, Globe, User, 
+import {
+  ArrowLeft, Edit2, Check, X, Users, Globe, User,
   Calendar, Ruler, Hash, Info, ExternalLink, Image as ImageIcon,
-  Trash2, Star, Upload, Link as LinkIcon, ChevronLeft, ChevronRight
+  Trash2, Star, Upload, Link as LinkIcon, ChevronLeft, ChevronRight, Plus
 } from 'lucide-react';
 import { 
   getPerson, updatePerson, personImageUrl, thumbnailUrl,
@@ -36,8 +36,8 @@ export default function PersonDetailPage() {
       const personData = await getPerson(id);
       const { aliases, images, gallery_count, ...person } = personData;
       setData(personData);
-      setEditData(person);
-      
+      setEditData({ ...person, aliases: aliases || [] });
+
       const galleryData = await listPersonGalleries(id);
       setGalleries(galleryData);
     } catch (err) {
@@ -54,13 +54,33 @@ export default function PersonDetailPage() {
       Object.keys(payload).forEach(key => {
         if (payload[key] === '') payload[key] = null;
       });
-      
+      // Aliases must always be sent as an array (even if empty) when editing,
+      // so the backend replaces them rather than leaving them untouched.
+      payload.aliases = editData.aliases || [];
+
       const updated = await updatePerson(id, payload);
       setData(updated);
       setIsEditing(false);
     } catch (err) {
       alert(`Failed to update: ${err.message}`);
     }
+  };
+
+  const addAlias = () => {
+    const next = [...(editData.aliases || []), ''];
+    setEditData({ ...editData, aliases: next });
+  };
+
+  const updateAlias = (index, value) => {
+    const next = [...(editData.aliases || [])];
+    next[index] = value;
+    setEditData({ ...editData, aliases: next });
+  };
+
+  const removeAlias = (index) => {
+    const next = [...(editData.aliases || [])];
+    next.splice(index, 1);
+    setEditData({ ...editData, aliases: next });
   };
 
   const handleDeletePerson = async () => {
@@ -224,14 +244,45 @@ export default function PersonDetailPage() {
                 <button className="btn btn-ghost" onClick={() => setIsEditing(true)}><Edit2 size={18} /></button>
               </div>
             )}
-            {person.disambiguation && <p className="disambiguation">{person.disambiguation}</p>}
+            {person.disambiguation && !isEditing && <p className="disambiguation">{person.disambiguation}</p>}
           </div>
 
           <div className="alias-section">
             <div className="section-label">Aliases</div>
-            <div className="alias-list">
-              {aliases.length > 0 ? aliases.map(a => <span key={a} className="alias-tag">{a}</span>) : <span className="text-muted">No aliases</span>}
-            </div>
+            {isEditing ? (
+              <div className="alias-editor">
+                {(editData.aliases || []).map((alias, idx) => (
+                  <div key={idx} className="alias-edit-row">
+                    <input
+                      type="text"
+                      value={alias}
+                      onChange={(e) => updateAlias(idx, e.target.value)}
+                      placeholder="Alias name"
+                      className="alias-input"
+                    />
+                    <button
+                      type="button"
+                      className="btn-icon btn-icon-sm"
+                      onClick={() => removeAlias(idx)}
+                      title="Remove alias"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={addAlias}
+                >
+                  <Plus size={14} /> Add alias
+                </button>
+              </div>
+            ) : (
+              <div className="alias-list">
+                {aliases.length > 0 ? aliases.map(a => <span key={a} className="alias-tag">{a}</span>) : <span className="text-muted">No aliases</span>}
+              </div>
+            )}
           </div>
 
           <div className="quick-stats">
@@ -241,7 +292,7 @@ export default function PersonDetailPage() {
              </div>
              <div className="stat-item">
                 <Users size={16} />
-                <span>{galleries.length} Galleries</span>
+                <span>{gallery_count} Galleries</span>
              </div>
           </div>
         </div>
@@ -255,9 +306,15 @@ export default function PersonDetailPage() {
                 <MetadataItem icon={<Globe size={16}/>} label="Country" value={person.country} isEditing={isEditing} onChange={v => setEditData({...editData, country: v})} />
                 <MetadataItem icon={<Users size={16}/>} label="Gender" value={person.gender} isEditing={isEditing} onChange={v => setEditData({...editData, gender: v})} />
                 <MetadataItem icon={<Info size={16}/>} label="Ethnicity" value={person.ethnicity} isEditing={isEditing} onChange={v => setEditData({...editData, ethnicity: v})} />
-                <MetadataItem icon={<Ruler size={16}/>} label="Height" value={person.height ? `${person.height} cm` : null} isEditing={isEditing} onChange={v => setEditData({...editData, height: parseInt(v)})} type="number" />
-                <MetadataItem icon={<Calendar size={16}/>} label="Career" value={person.career_start_year ? `${person.career_start_year} - ${person.career_end_year || 'Present'}` : null} isEditing={isEditing} isRange onChangeStart={v => setEditData({...editData, career_start_year: parseInt(v)})} onChangeEnd={v => setEditData({...editData, career_end_year: parseInt(v)})} />
+                <MetadataItem icon={<Ruler size={16}/>} label="Height" value={person.height ? `${person.height} cm` : null} isEditing={isEditing} onChange={v => setEditData({...editData, height: v === '' ? null : parseInt(v)})} type="number" />
+                <MetadataItem icon={<Calendar size={16}/>} label="Career" value={person.career_start_year ? `${person.career_start_year} - ${person.career_end_year || 'Present'}` : null} isEditing={isEditing} isRange onChangeStart={v => setEditData({...editData, career_start_year: v === '' ? null : parseInt(v)})} onChangeEnd={v => setEditData({...editData, career_end_year: v === '' ? null : parseInt(v)})} />
                 <MetadataItem icon={<Hash size={16}/>} label="Measurements" value={person.measurements} isEditing={isEditing} onChange={v => setEditData({...editData, measurements: v})} />
+                {isEditing && (
+                  <MetadataItem icon={<Info size={16}/>} label="Disambiguation" value={person.disambiguation} isEditing={isEditing} onChange={v => setEditData({...editData, disambiguation: v})} />
+                )}
+                <MetadataItem icon={<User size={16}/>} label="Hair Color" value={person.hair_color} isEditing={isEditing} onChange={v => setEditData({...editData, hair_color: v})} />
+                <MetadataItem icon={<User size={16}/>} label="Eye Color" value={person.eye_color} isEditing={isEditing} onChange={v => setEditData({...editData, eye_color: v})} />
+                <MetadataItem icon={<User size={16}/>} label="Breast Type" value={person.breast_type} isEditing={isEditing} onChange={v => setEditData({...editData, breast_type: v})} />
               </div>
            </section>
 
@@ -304,9 +361,27 @@ export default function PersonDetailPage() {
            </section>
         </div>
 
-        <div className="grid-sidebar">
-           {/* Sidebar now only contains high-level info or empty for future usage */}
-        </div>
+        <aside className="grid-sidebar">
+           <div className="quick-actions-panel">
+             <h3>Quick Actions</h3>
+             <button className="btn btn-secondary btn-block" onClick={handleRelink}>
+               <LinkIcon size={14} /> Relink Galleries
+             </button>
+             <button className="btn btn-secondary btn-block" onClick={() => setShowStashModal(true)}>
+               <ExternalLink size={14} /> StashDB Import
+             </button>
+             {person.stashdb_id && (
+               <a
+                 className="btn btn-ghost btn-block"
+                 href={`https://stashdb.org/performers/${person.stashdb_id}`}
+                 target="_blank"
+                 rel="noopener noreferrer"
+               >
+                 <ExternalLink size={14} /> View on StashDB
+               </a>
+             )}
+           </div>
+        </aside>
       </div>
 
       {showStashModal && (
